@@ -1,0 +1,155 @@
+import http from 'node:http'
+import { createWriteStream, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import { HOST_LOCAL_PORT } from '@remoteai/protocol'
+import type { HostConfig } from './config.js'
+import { isLocalHub, lanUrls } from './net.js'
+import { setClipboardFiles } from './clipboard.js'
+import { log } from './log.js'
+
+export type LocalState = {
+  cfg: () => HostConfig
+  save: (patch: Partial<HostConfig>) => void
+  online: () => boolean
+  deviceId: () => string
+  displays: () => unknown
+  oneTime?: () => void
+  lastOneTime?: () => { code: string; expiresAt: number } | null
+  login?: (username: string, password: string) => Promise<{ ok: boolean; error?: string; username?: string }>
+  logout?: () => void
+}
+
+const clipRoot = path.join(os.tmpdir(), 'RemoteAI-clip')
+
+export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
+  const server = http.createServer((req, res) => {
+    const origin = req.headers.origin || ''
+    const allow =
+      origin.startsWith('http://127.0.0.1') ||
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('http://[::1]') ||
+      !origin
+    res.setHeader('Access-Control-Allow-Origin', allow ? origin || '*' : 'http://127.0.0.1:5173')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+    const url = new URL(req.url || '/', 'http://127.0.0.1')
+    if (req.method === 'GET' && url.pathname === '/local') {
+      const cfg = state.cfg()
+      json(res, {
+        deviceId: state.deviceId(),
+        password: cfg.password,
+        serverUrl: cfg.serverUrl,
+        autoStart: cfg.autoStart,
+        sshLan: cfg.sshLan,
+        lockOnDisconnect: cfg.lockOnDisconnect,
+        online: state.online(),
+        displays: state.displays(),
+        lanUrls: lanUrls(),
+        username: process.env.USERNAME,
+        hostname: process.env.COMPUTERNAME,
+        oneTime: state.lastOneTime?.() || null,
+        accountUser: cfg.accountUser || null,
+        hub: isLocalHub(cfg.serverUrl),
+        hubUrls: lanUrls(),
+      })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/onetime') {
+      state.oneTime?.()
+      setTimeout(() => json(res, { ok: true, oneTime: state.lastOneTime?.() || null }), 400)
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/login') {
+      readBody(req).then(async (body) => {
+        const b = body as { username?: string; password?: string }
+        if (!state.login) {
+          json(res, { ok: false, error: 'login unavailable' })
+          return
+        }
+        const r = await state.login(String(b.username || ''), String(b.password || ''))
+        json(res, r)
+      })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/logout') {
+      state.logout?.()
+      json(res, { ok: true })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/clip-file') {
+      const batch = (url.searchParams.get('batch') || 'x').replace(/[^\w.-]/g, '')
+      const relRaw = url.searchParams.get('path') || 'file.bin'
+      const rel = path.normalize(relRaw).replace(/^(\.\.(\/|\\|$))+/, '').replace(/\\/g, '/')
+      if (rel.includes('..')) {
+        res.writeHead(400)
+        res.end('bad path')
+        return
+      }
+      const dest = path.join(clipRoot, batch, ...rel.split('/'))
+      mkdirSync(path.dirname(dest), { recursive: true })
+      const stream = createWriteStream(dest)
+      req.pipe(stream)
+      stream.on('finish', () => json(res, { ok: true, dest }))
+      stream.on('error', (e) => {
+        log('clip-file', e)
+        res.writeHead(500)
+        res.end('write failed')
+      })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/clip-commit') {
+      const batch = (url.searchParams.get('batch') || 'x').replace(/[^\w.-]/g, '')
+      const base = path.join(clipRoot, batch)
+      try {
+        const roots = listRoots(base)
+        setClipboardFiles(roots)
+        json(res, { ok: true, roots })
+      } catch (e) {
+        log('clip-commit', e)
+        json(res, { ok: false, error: String(e) })
+      }
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local') {
+      readBody(req).then((body) => {
+        state.save(body as Partial<HostConfig>)
+        json(res, { ok: true })
+      })
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  server.listen(port, '127.0.0.1')
+  return server
+}
+
+function listRoots(dir: string) {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir).map((n) => path.join(dir, n))
+}
+
+function json(res: http.ServerResponse, data: unknown) {
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+  res.end(JSON.stringify(data))
+}
+
+function readBody(req: http.IncomingMessage) {
+  return new Promise<unknown>((resolve) => {
+    const chunks: Buffer[] = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))
+      } catch {
+        resolve({})
+      }
+    })
+  })
+}

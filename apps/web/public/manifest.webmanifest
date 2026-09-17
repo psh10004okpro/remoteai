@@ -1,0 +1,9 @@
+{
+  "name": "RemoteAI",
+  "short_name": "RemoteAI",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#0f766e",
+  "lang": "ko"
+}

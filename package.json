@@ -1,0 +1,24 @@
+{
+  "name": "remoteai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chrome Remote Desktop-like access with file clipboard, SSH, and AI control",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web,host -c cyan,green,magenta \"npm run dev -w @remoteai/server\" \"npm run dev -w @remoteai/web\" \"npm run dev -w @remoteai/host\"",
+    "build": "npm run build -w @remoteai/protocol && npm run build -w @remoteai/server && npm run build -w @remoteai/web && npm run build -w @remoteai/host",
+    "start": "npm run start -w @remoteai/server",
+    "start:host": "npm run start -w @remoteai/host",
+    "hub": "npm run dev -w @remoteai/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

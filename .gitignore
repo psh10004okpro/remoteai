@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+apps/server/data/
+apps/web/dist/
+apps/host/dist/
+packages/protocol/dist/
+coverage/
+*.tsbuildinfo
+.vscode/
+.idea/
+capture-test.jpg

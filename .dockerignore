@@ -1,0 +1,15 @@
+.git
+.grok
+**/.git
+**/node_modules
+**/dist
+apps/server/data
+apps/host
+**/*.log
+**/.env
+**/.env.local
+capture-test.jpg
+_*.mjs
+_*.py
+.vscode
+.idea
