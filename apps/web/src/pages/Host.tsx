@@ -158,38 +158,7 @@ export default function Host() {
               계정 연결 해제
             </button>
           )}
-          <div className="id-big">{formatDeviceId(info.deviceId || '---------')}</div>
-          <div className="row">
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={() => navigator.clipboard.writeText(info.deviceId)}
-            >
-              ID 복사
-            </button>
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={() => navigator.clipboard.writeText(info.password)}
-            >
-              비밀번호 복사
-            </button>
-          </div>
-          <label>비밀번호</label>
-          <div className="row">
-            <input
-              className="grow"
-              type={show ? 'text' : 'password'}
-              value={info.password}
-              onChange={(e) => setInfo({ ...info, password: e.target.value })}
-            />
-            <button className="btn ghost" type="button" onClick={() => setShow((s) => !s)}>
-              {show ? '숨기기' : '표시'}
-            </button>
-            <button className="btn" type="button" onClick={() => patch({ password: info.password })}>
-              저장
-            </button>
-          </div>
+          <p className="hint" style={{ marginTop: 10 }}>{info.hostname}</p>
           <div className="toggle">
             <input
               id="as"
@@ -198,56 +167,74 @@ export default function Host() {
               onChange={(e) => patch({ autoStart: e.target.checked })}
             />
             <label htmlFor="as" style={{ margin: 0 }}>
-              부팅·로그온 시 자동 시작 (서버+호스트, 트레이만)
+              이 컴퓨터 켤 때 호스트 시작
             </label>
           </div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={async () => {
-                await fetch(localHostUrl() + '/onetime', { method: 'POST' })
-                await new Promise((r) => setTimeout(r, 600))
-                await refresh()
-              }}
-            >
-              일회용 접속 코드
-            </button>
-            {info.oneTime && info.oneTime.expiresAt > Date.now() && (
-              <span className="pill">
-                {info.oneTime.code} · {Math.max(0, Math.round((info.oneTime.expiresAt - Date.now()) / 60000))}분
-              </span>
-            )}
-          </div>
-          <div className="toggle">
-            <input
-              id="ssh"
-              type="checkbox"
-              checked={info.sshLan}
-              onChange={(e) => patch({ sshLan: e.target.checked })}
-            />
-            <label htmlFor="ssh" style={{ margin: 0 }}>
-              LAN SSH 허용 (포트 2222, 같은 비밀번호)
-            </label>
-          </div>
-          <div className="toggle">
-            <input
-              id="lock"
-              type="checkbox"
-              checked={info.lockOnDisconnect}
-              onChange={(e) => patch({ lockOnDisconnect: e.target.checked })}
-            />
-            <label htmlFor="lock" style={{ margin: 0 }}>
-              마지막 뷰어가 나가면 화면 잠금
-            </label>
-          </div>
-          <p className="hint">
-            로컬 SSH: <code>ssh -p 2222 {info.username || 'user'}@127.0.0.1</code>
-            <br />
-            폰·다른 PC: {(info.lanUrls || []).join(' · ') || 'LAN IP 없음'}
-            <br />
-            개발 중 웹: <code>http://192.168.x.x:5173</code> / 부팅 후: 서버 포트 18790
-          </p>
+          <details className="adv">
+            <summary>고급: PIN, SSH, 일회용 코드</summary>
+            <div className="id-big">{formatDeviceId(info.deviceId || '---------')}</div>
+            <div className="row">
+              <button className="btn ghost" type="button" onClick={() => navigator.clipboard.writeText(info.deviceId)}>
+                ID 복사
+              </button>
+              <button className="btn ghost" type="button" onClick={() => navigator.clipboard.writeText(info.password)}>
+                PIN 복사
+              </button>
+            </div>
+            <label>게스트 PIN</label>
+            <div className="row">
+              <input
+                className="grow"
+                type={show ? 'text' : 'password'}
+                value={info.password}
+                onChange={(e) => setInfo({ ...info, password: e.target.value })}
+              />
+              <button className="btn ghost" type="button" onClick={() => setShow((s) => !s)}>
+                {show ? '숨기기' : '표시'}
+              </button>
+              <button className="btn" type="button" onClick={() => patch({ password: info.password })}>
+                저장
+              </button>
+            </div>
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={async () => {
+                  await fetch(localHostUrl() + '/onetime', { method: 'POST' })
+                  await new Promise((r) => setTimeout(r, 600))
+                  await refresh()
+                }}
+              >
+                일회용 접속 코드
+              </button>
+              {info.oneTime && info.oneTime.expiresAt > Date.now() && (
+                <span className="pill">
+                  {info.oneTime.code} · {Math.max(0, Math.round((info.oneTime.expiresAt - Date.now()) / 60000))}분
+                </span>
+              )}
+            </div>
+            <div className="toggle">
+              <input id="ssh" type="checkbox" checked={info.sshLan} onChange={(e) => patch({ sshLan: e.target.checked })} />
+              <label htmlFor="ssh" style={{ margin: 0 }}>
+                LAN SSH 허용 (포트 2222)
+              </label>
+            </div>
+            <div className="toggle">
+              <input
+                id="lock"
+                type="checkbox"
+                checked={info.lockOnDisconnect}
+                onChange={(e) => patch({ lockOnDisconnect: e.target.checked })}
+              />
+              <label htmlFor="lock" style={{ margin: 0 }}>
+                마지막 뷰어가 나가면 화면 잠금
+              </label>
+            </div>
+            <p className="hint">
+              SSH: <code>ssh -p 2222 {info.username || 'user'}@127.0.0.1</code>
+            </p>
+          </details>
         </div>
       )}
     </div>

@@ -19,7 +19,19 @@ export function clearSession() {
   localStorage.removeItem(USER)
 }
 
-export type DeviceInfo = { id: string; name: string; online: boolean; lastSeen: number }
+export type DeviceInfo = { id: string; name: string; online: boolean; lastSeen: number; mac?: string | null }
+
+export function setPendingSession(deviceId: string) {
+  sessionStorage.setItem('remoteai.connect', deviceId)
+}
+
+export function takePendingSession() {
+  return sessionStorage.getItem('remoteai.connect') || ''
+}
+
+export function clearPendingSession() {
+  sessionStorage.removeItem('remoteai.connect')
+}
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
@@ -41,15 +53,26 @@ export async function signup(username: string, password: string) {
   return r
 }
 
-export async function login(username: string, password: string) {
-  const r = await api<{ token: string; username: string }>('/api/login', {
+export async function login(username: string, password: string, totp?: string) {
+  const r = await api<{ token?: string; username: string; totpRequired?: boolean }>('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, totp }),
   })
-  setSession(r.token, r.username)
+  if (r.token) setSession(r.token, r.username)
   return r
 }
 
 export async function fetchDevices() {
   return api<{ devices: DeviceInfo[] }>('/api/devices')
+}
+
+export async function renameDevice(id: string, name: string) {
+  return api<{ ok: boolean; name: string }>(`/api/devices/${id}/rename`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function wakeDevice(id: string) {
+  return api<{ ok: boolean }>(`/api/devices/${id}/wol`, { method: 'POST' })
 }

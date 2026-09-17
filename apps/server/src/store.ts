@@ -10,12 +10,15 @@ export type DeviceRecord = {
   lastSeen: number
   mac?: string
   username?: string
+  nameIsCustom?: boolean
 }
 
 export type UserRecord = {
   username: string
   passwordHash: string
   sessions: { tokenHash: string; created: number }[]
+  totpSecret?: string
+  totpEnabled?: boolean
 }
 
 const dataDir = process.env.DATA_DIR
@@ -108,6 +111,15 @@ export function createUser(username: string, password: string) {
   return { ok: true as const, user: rec }
 }
 
+export function issueSession(rec: UserRecord) {
+  const token = newToken()
+  rec.sessions.push({ tokenHash: hashSecret(token, `sess:${rec.username.toLowerCase()}`), created: Date.now() })
+  rec.sessions = rec.sessions.slice(-8)
+  users.set(rec.username.toLowerCase(), rec)
+  void saveUsers()
+  return token
+}
+
 export function loginUser(username: string, password: string) {
   const key = username.toLowerCase()
   const rec = users.get(key)
@@ -115,12 +127,27 @@ export function loginUser(username: string, password: string) {
   if (!sameHash(rec.passwordHash, hashSecret(password, `user:${key}`))) {
     return { ok: false as const, error: '아이디 또는 비밀번호가 올바르지 않습니다.' }
   }
-  const token = newToken()
-  rec.sessions.push({ tokenHash: hashSecret(token, `sess:${key}`), created: Date.now() })
-  rec.sessions = rec.sessions.slice(-8)
-  users.set(key, rec)
+  if (rec.totpEnabled) return { ok: true as const, totpRequired: true as const, username: rec.username }
+  const token = issueSession(rec)
+  return { ok: true as const, token, username: rec.username, totpRequired: false as const }
+}
+
+export function getUserRecord(username: string) {
+  return users.get(username.toLowerCase()) || null
+}
+
+export function saveUser(rec: UserRecord) {
+  users.set(rec.username.toLowerCase(), rec)
   void saveUsers()
-  return { ok: true as const, token, username: rec.username }
+}
+
+export function renameDevice(id: string, username: string, name: string) {
+  const rec = devices.get(id)
+  if (!rec || (rec.username || '').toLowerCase() !== username.toLowerCase()) return false
+  rec.name = name.slice(0, 64).trim() || rec.name
+  rec.nameIsCustom = true
+  upsertDevice(rec)
+  return true
 }
 
 export function userFromSession(token: string | undefined | null) {

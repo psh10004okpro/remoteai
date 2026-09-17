@@ -16,15 +16,20 @@ import {
   createUser,
   getDevice,
   hashToken,
+  getUserRecord,
+  issueSession,
   listDevicesForUser,
   loadStore,
   loginUser,
   logoutSession,
   newToken,
+  renameDevice,
+  saveUser,
   upsertDevice,
   userFromSession,
   verifyToken,
 } from './store.js'
+import { otpauth, randomSecret, totpOk } from './totp.js'
 import { runAiTurn, type ToolBridge } from './ai.js'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 
@@ -165,9 +170,24 @@ app.post('/api/signup', (req, res) => {
 app.post('/api/login', (req, res) => {
   const username = String(req.body?.username || '').trim()
   const password = String(req.body?.password || '')
+  const totp = String(req.body?.totp || '')
   const logged = loginUser(username, password)
   if (!logged.ok) {
     res.status(401).json({ error: logged.error })
+    return
+  }
+  if (logged.totpRequired) {
+    if (!totp) {
+      res.json({ totpRequired: true, username: logged.username })
+      return
+    }
+    const rec = getUserRecord(username)
+    if (!rec?.totpSecret || !totpOk(rec.totpSecret, totp)) {
+      res.status(401).json({ error: '인증 앱 코드가 올바르지 않습니다.', totpRequired: true })
+      return
+    }
+    const token = issueSession(rec)
+    res.json({ token, username: rec.username })
     return
   }
   res.json({ token: logged.token, username: logged.username })
@@ -185,7 +205,51 @@ app.get('/api/me', (req, res) => {
     res.status(401).json({ error: '로그인이 필요합니다.' })
     return
   }
-  res.json({ username: user.username })
+  res.json({ username: user.username, totpEnabled: !!user.totpEnabled })
+})
+
+app.post('/api/2fa/setup', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const secret = randomSecret()
+  user.totpSecret = secret
+  user.totpEnabled = false
+  saveUser(user)
+  res.json({ secret, otpauth: otpauth(user.username, secret) })
+})
+
+app.post('/api/2fa/enable', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user?.totpSecret) {
+    res.status(400).json({ error: '먼저 설정을 시작하세요.' })
+    return
+  }
+  if (!totpOk(user.totpSecret, String(req.body?.code || ''))) {
+    res.status(400).json({ error: '코드가 올바르지 않습니다.' })
+    return
+  }
+  user.totpEnabled = true
+  saveUser(user)
+  res.json({ ok: true })
+})
+
+app.post('/api/2fa/disable', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  if (user.totpEnabled && user.totpSecret && !totpOk(user.totpSecret, String(req.body?.code || ''))) {
+    res.status(400).json({ error: '코드가 올바르지 않습니다.' })
+    return
+  }
+  user.totpEnabled = false
+  user.totpSecret = undefined
+  saveUser(user)
+  res.json({ ok: true })
 })
 
 app.get('/api/devices', (req, res) => {
@@ -199,30 +263,74 @@ app.get('/api/devices', (req, res) => {
     name: d.name,
     lastSeen: d.lastSeen,
     online: !!rooms.get(d.id)?.host,
+    mac: d.mac || null,
   }))
   res.json({ devices: list })
+})
+
+app.post('/api/devices/:id/rename', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const name = String(req.body?.name || '').trim()
+  if (!renameDevice(req.params.id, user.username, name)) {
+    res.status(404).json({ error: '기기를 찾을 수 없습니다.' })
+    return
+  }
+  res.json({ ok: true, name })
+})
+
+app.post('/api/devices/:id/wol', async (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const d = getDevice(req.params.id)
+  if (!d || (d.username || '').toLowerCase() !== user.username.toLowerCase() || !d.mac) {
+    res.status(404).json({ error: 'MAC 주소가 없습니다.' })
+    return
+  }
+  const r = await sendWol(d.mac)
+  if (!r.ok) {
+    res.status(400).json(r)
+    return
+  }
+  res.json(r)
 })
 
 function PROTOCOL_VERSION_SAFE() {
   return 1
 }
 
-app.get('/api/wol/:mac', (req, res) => {
-  const mac = req.params.mac
-  import('node:dgram').then((dgram) => {
-    const parts = mac.split(/[:\-]/).map((x) => parseInt(x, 16))
-    if (parts.length !== 6 || parts.some((n) => Number.isNaN(n))) {
-      res.status(400).json({ error: 'bad mac' })
-      return
-    }
-    const magic = Buffer.concat([Buffer.alloc(6, 0xff), ...Array(16).fill(Buffer.from(parts))])
+async function sendWol(mac: string) {
+  const parts = mac.split(/[:\-]/).map((x) => parseInt(x, 16))
+  if (parts.length !== 6 || parts.some((n) => Number.isNaN(n))) return { ok: false as const, error: 'bad mac' }
+  const dgram = await import('node:dgram')
+  const magic = Buffer.concat([Buffer.alloc(6, 0xff), ...Array(16).fill(Buffer.from(parts))])
+  await new Promise<void>((resolve, reject) => {
     const sock = dgram.createSocket('udp4')
     sock.bind(() => {
       sock.setBroadcast(true)
-      sock.send(magic, 9, '255.255.255.255', () => sock.close())
+      sock.send(magic, 9, '255.255.255.255', (err) => {
+        sock.close()
+        if (err) reject(err)
+        else resolve()
+      })
     })
-    res.json({ ok: true })
   })
+  return { ok: true as const }
+}
+
+app.get('/api/wol/:mac', async (req, res) => {
+  const r = await sendWol(req.params.mac)
+  if (!r.ok) {
+    res.status(400).json(r)
+    return
+  }
+  res.json(r)
 })
 
 if (fs.existsSync(webDist)) {
@@ -292,7 +400,7 @@ async function handleJson(client: Client, msg: Msg) {
         const rec = getDevice(id)!
         upsertDevice({
           ...rec,
-          name: msg.name,
+          name: rec.nameIsCustom ? rec.name : msg.name,
           lastSeen: Date.now(),
           mac: msg.mac,
           username: account?.username || rec.username,

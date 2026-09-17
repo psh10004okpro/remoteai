@@ -9,6 +9,7 @@ export const BINARY = {
   JPEG: 1,
   FILE: 2,
   PTY: 3,
+  AUDIO: 4,
 } as const
 
 export type BinaryKind = (typeof BINARY)[keyof typeof BINARY]
@@ -36,6 +37,8 @@ export type Capabilities = {
   wol: boolean
   specialKeys: boolean
   multiMonitor: boolean
+  audio: boolean
+  viewOnly: boolean
 }
 
 export const DEFAULT_CAPABILITIES: Capabilities = {
@@ -50,6 +53,8 @@ export const DEFAULT_CAPABILITIES: Capabilities = {
   wol: true,
   specialKeys: true,
   multiMonitor: true,
+  audio: true,
+  viewOnly: true,
 }
 
 export type FileEntry = {
@@ -98,6 +103,10 @@ export type Msg =
   | { type: 'display.select'; displayId: number }
   | { type: 'display.list'; displays: DisplayInfo[] }
   | { type: 'quality.set'; quality: Partial<QualitySettings> }
+  | { type: 'session.viewOnly'; on: boolean }
+  | { type: 'session.fit'; width: number; height: number }
+  | { type: 'file.progress'; transferId: number; sent: number; total: number }
+  | { type: 'audio.toggle'; on: boolean }
   | { type: 'clipboard.text'; text: string; origin: 'host' | 'viewer' }
   | { type: 'clipboard.files.offer'; origin: 'host' | 'viewer'; batchId: string; files: { name: string; size: number; relativePath: string }[] }
   | { type: 'clipboard.files.accept' }
@@ -202,6 +211,18 @@ export function encodePty(bytes: Uint8Array): Uint8Array {
 
 export function decodePty(buf: Uint8Array): Uint8Array | null {
   if (buf.length < 2 || buf[0] !== BINARY.PTY) return null
+  return buf.subarray(1)
+}
+
+export function encodeAudio(pcm: Uint8Array) {
+  const out = new Uint8Array(1 + pcm.length)
+  out[0] = BINARY.AUDIO
+  out.set(pcm, 1)
+  return out
+}
+
+export function decodeAudio(buf: Uint8Array) {
+  if (buf.length < 2 || buf[0] !== BINARY.AUDIO) return null
   return buf.subarray(1)
 }
 

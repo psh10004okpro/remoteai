@@ -256,3 +256,137 @@ input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft);
   align-items: center;
   margin: 10px 0;
 }
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  background: #efe8dc;
+  padding: 4px;
+  border-radius: 12px;
+  width: fit-content;
+}
+.tabs button {
+  border: 0;
+  background: transparent;
+  padding: 8px 14px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 650;
+}
+.tabs button.on {
+  background: var(--bg-2);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.device-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  margin-top: 10px;
+  background: #fff;
+}
+.device-card .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
+.device-card .dot.off { background: #c4b5a5; }
+.device-card h3 { margin: 0; font-size: 16px; }
+.device-card .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 5;
+}
+.vcursor {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #0f766e, 0 2px 8px rgba(0,0,0,.4);
+  pointer-events: none;
+  z-index: 3;
+}
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  background: #1a1a1a;
+}
+.keys button {
+  min-width: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #2a2a2a;
+  color: #eee;
+}
+.progress {
+  height: 6px;
+  background: #333;
+  border-radius: 99px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  background: var(--teal);
+}
+.more {
+  position: relative;
+}
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: 110%;
+  background: #222;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 8px;
+  z-index: 8;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  z-index: 20;
+  font-size: 13px;
+}
+details.adv {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+details.adv > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 650;
+}

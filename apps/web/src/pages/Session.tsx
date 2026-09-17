@@ -7,6 +7,7 @@ import {
   BINARY,
   decodeFileChunk,
   decodeJpegFrame,
+  decodeAudio,
   decodePty,
   encodeFileChunk,
   FILE_CHUNK_SIZE,
@@ -17,7 +18,7 @@ import {
 } from '@remoteai/protocol'
 import { fetchLocalHost, localHostUrl, wsUrl } from '../lib/ws'
 import { downloadBlob, zipStore } from '../lib/zip'
-import { getToken } from '../lib/auth'
+import { clearPendingSession, getToken, takePendingSession } from '../lib/auth'
 
 type ChatItem = { from: string; text: string }
 
@@ -45,12 +46,28 @@ export default function Session() {
   const batches = useRef(new Map<string, number[]>())
   const transferId = useRef(1)
   const [quality, setQuality] = useState(55)
-  const pad = useRef({ x: 0, y: 0, moved: false, pointers: new Map<number, { x: number; y: number }>() })
+  const [autoQ, setAutoQ] = useState(true)
+  const [viewOnly, setViewOnly] = useState(false)
+  const [more, setMore] = useState(false)
+  const [keysOn, setKeysOn] = useState(false)
+  const [reconnect, setReconnect] = useState(false)
+  const [toast, setToast] = useState('')
+  const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [recording, setRecording] = useState(false)
+  const [cursor, setCursor] = useState({ x: 0.5, y: 0.5 })
+  const pad = useRef({ x: 0.5, y: 0.5, moved: false, pointers: new Map<number, { x: number; y: number }>() })
   const frameSize = useRef({ w: 16, h: 9 })
+  const recRef = useRef<MediaRecorder | null>(null)
+  const audioCtx = useRef<AudioContext | null>(null)
+  const recChunks = useRef<Blob[]>([])
+  const retryRef = useRef(0)
+  const alive = useRef(true)
+  const msgHandler = useRef<(ev: MessageEvent) => void>(() => undefined)
 
-  const deviceId = params.get('id') || ''
+  const [deviceId] = useState(() => params.get('id') || takePendingSession())
   const password = params.get('pw') || ''
-  const accountToken = params.get('token') || getToken()
+  const accountToken = getToken()
   const code = params.get('code') || ''
 
   function send(msg: Msg) {
@@ -62,18 +79,36 @@ export default function Session() {
     if (ws && ws.readyState === 1) ws.send(data)
   }
 
-  useEffect(() => {
+  function connectWs() {
     const ws = new WebSocket(wsUrl())
     ws.binaryType = 'arraybuffer'
     sockRef.current = ws
     ws.onopen = () => {
+      retryRef.current = 0
+      setReconnect(false)
       setStatus('인증 중…')
       if (code) send({ type: 'viewer.authCode', code })
       else send({ type: 'viewer.auth', deviceId, password: password || undefined, accountToken: accountToken || undefined })
+      send({ type: 'session.fit', width: window.innerWidth, height: window.innerHeight })
     }
-    ws.onclose = () => setStatus('연결 종료')
+    ws.onclose = () => {
+      setStatus('연결 종료')
+      if (!alive.current) return
+      setReconnect(true)
+      const wait = Math.min(8000, 800 * 2 ** retryRef.current++)
+      setTimeout(() => {
+        if (alive.current) connectWs()
+      }, wait)
+    }
     ws.onerror = () => setStatus('연결 오류')
-    ws.onmessage = (ev) => {
+    ws.onmessage = (ev) => msgHandler.current(ev)
+    return ws
+  }
+
+  useEffect(() => {
+    alive.current = true
+    const ws = connectWs()
+    msgHandler.current = (ev) => {
       if (typeof ev.data !== 'string') {
         const buf = new Uint8Array(ev.data as ArrayBuffer)
         if (buf[0] === BINARY.JPEG) {
@@ -92,6 +127,10 @@ export default function Session() {
           const d = decodePty(buf)
           if (d && term.current) term.current.write(new TextDecoder().decode(d))
         }
+        if (buf[0] === BINARY.AUDIO) {
+          const pcm = decodeAudio(buf)
+          if (pcm) playPcm(pcm)
+        }
         return
       }
       const msg = JSON.parse(ev.data) as Msg
@@ -101,6 +140,7 @@ export default function Session() {
           setName(msg.name)
           setDisplays(msg.displays)
           setDisplayId(msg.displays.find((d) => d.primary)?.id ?? 0)
+          clearPendingSession()
           break
         case 'viewer.denied':
           setStatus(msg.message)
@@ -178,7 +218,15 @@ export default function Session() {
           break
       }
     }
-    return () => ws.close()
+    const ping = setInterval(() => send({ type: 'ping', t: Date.now() }), 2000)
+    const onResize = () => send({ type: 'session.fit', width: window.innerWidth, height: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => {
+      alive.current = false
+      clearInterval(ping)
+      window.removeEventListener('resize', onResize)
+      ws.close()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, password, code, accountToken])
 
@@ -204,7 +252,7 @@ export default function Session() {
   }
 
   function onMouse(e: React.MouseEvent, action: 'move' | 'down' | 'up') {
-    if (touchpad) return
+    if (viewOnly || touchpad) return
     const p = pos(e)
     if (!p) return
     if (action !== 'move') e.preventDefault()
@@ -213,7 +261,7 @@ export default function Session() {
 
   useEffect(() => {
     function keys(e: KeyboardEvent, action: 'down' | 'up') {
-      if (panel === 'ai' || panel === 'term') return
+      if (viewOnly || panel === 'ai' || panel === 'term') return
       if (!canvasRef.current) return
       e.preventDefault()
       send({
@@ -258,7 +306,7 @@ export default function Session() {
       window.removeEventListener('paste', onPaste)
       window.removeEventListener('copy', onCopy)
     }
-  }, [panel, displayId])
+  }, [panel, displayId, viewOnly])
 
   function concatChunks(chunks: Uint8Array[]) {
     const n = chunks.reduce((s, c) => s + c.length, 0)
@@ -291,10 +339,8 @@ export default function Session() {
     void (async () => {
       const native = await pushToNativeClipboard(files)
       if (native) {
-        setChat((c) => [
-          ...c,
-          { from: 'system', text: `파일 ${files.length}개를 이 컴퓨터 클립보드에 넣었습니다. 탐색기에서 Ctrl+V 로 붙여넣으세요.` },
-        ])
+        setToast('파일이 클립보드에 있습니다. 탐색기에서 Ctrl+V')
+        setTimeout(() => setToast(''), 3500)
         return
       }
       const folder = files.some((f) => f.relativePath.includes('/')) || files.length > 1
@@ -333,8 +379,10 @@ export default function Session() {
       }
       if (buf.length === 0) sendBin(encodeFileChunk(id, 0, true, new Uint8Array()))
       send({ type: 'file.end', transferId: id, origin: 'viewer', batchId })
+      setProgress({ sent: i + 1, total: list.length })
     }
     send({ type: 'clipboard.files.complete', origin: 'viewer', batchId })
+    setTimeout(() => setProgress(null), 800)
   }
 
   async function collectAndSend(items: DataTransferItemList | null, fallback: FileList | null) {
@@ -414,6 +462,42 @@ export default function Session() {
     [],
   )
 
+  function playPcm(pcm: Uint8Array) {
+    try {
+      const ctx = audioCtx.current || new AudioContext({ sampleRate: 16000 })
+      audioCtx.current = ctx
+      const n = Math.floor(pcm.length / 2)
+      const f32 = new Float32Array(n)
+      const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength)
+      for (let i = 0; i < n; i++) f32[i] = view.getInt16(i * 2, true) / 32768
+      const buf = ctx.createBuffer(1, n, 16000)
+      buf.getChannelData(0).set(f32)
+      const src = ctx.createBufferSource()
+      src.buffer = buf
+      src.connect(ctx.destination)
+      src.start()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function startRec() {
+    const c = canvasRef.current
+    if (!c) return
+    const stream = c.captureStream(10)
+    const rec = new MediaRecorder(stream, { mimeType: 'video/webm' })
+    recChunks.current = []
+    rec.ondataavailable = (e) => {
+      if (e.data.size) recChunks.current.push(e.data)
+    }
+    rec.onstop = () => {
+      downloadBlob('remoteai-session.webm', new Blob(recChunks.current, { type: 'video/webm' }))
+    }
+    rec.start(1000)
+    recRef.current = rec
+    setRecording(true)
+  }
+
   return (
     <div className="session">
       <div className="toolbar">
@@ -421,78 +505,66 @@ export default function Session() {
           나가기
         </Link>
         <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}</span>
-        <select
-          value={displayId}
-          onChange={(e) => {
-            const id = Number(e.target.value)
-            setDisplayId(id)
-            send({ type: 'display.select', displayId: id })
-          }}
-        >
-          {displays.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name} {d.primary ? '(주)' : ''} {d.width}x{d.height}
-            </option>
-          ))}
-        </select>
-        {specials.map((s) => (
-          <button key={s.k} type="button" onClick={() => special(s.k)}>
-            {s.l}
-          </button>
-        ))}
-        <button type="button" onClick={() => setPanel(panel === 'files' ? 'none' : 'files')}>
-          파일
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setPanel(panel === 'ai' ? 'none' : 'ai')
-          }}
-        >
-          AI
-        </button>
-        <button type="button" onClick={() => setPanel(panel === 'term' ? 'none' : 'term')}>
-          터미널
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setBlank((b) => {
-              send({ type: 'privacy.blank', on: !b })
-              return !b
-            })
-          }}
-        >
-          {blank ? '화면 표시' : '블랙스크린'}
-        </button>
-        <button type="button" onClick={() => setTouchpad((t) => !t)}>
-          {touchpad ? '터치패드' : '절대좌표'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const el = document.documentElement
-            if (!document.fullscreenElement) void el.requestFullscreen()
-            else void document.exitFullscreen()
-          }}
-        >
-          전체화면
-        </button>
-        <label style={{ fontSize: 12, color: '#bbb' }}>
-          화질
-          <input
-            type="range"
-            min={30}
-            max={90}
-            value={quality}
+        {displays.length > 1 && (
+          <select
+            value={displayId}
             onChange={(e) => {
-              const jpegQuality = Number(e.target.value)
-              setQuality(jpegQuality)
-              send({ type: 'quality.set', quality: { jpegQuality } })
+              const id = Number(e.target.value)
+              setDisplayId(id)
+              send({ type: 'display.select', displayId: id })
             }}
-          />
-        </label>
+          >
+            {displays.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} {d.primary ? '(주)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
+        <button type="button" onClick={() => setPanel(panel === 'files' ? 'none' : 'files')}>파일</button>
+        <button type="button" onClick={() => setPanel(panel === 'ai' ? 'none' : 'ai')}>AI</button>
+        <button type="button" onClick={() => setPanel(panel === 'term' ? 'none' : 'term')}>터미널</button>
         <span className="spacer" />
+        <div className="more">
+          <button type="button" onClick={() => setMore((m) => !m)}>더보기</button>
+          {more && (
+            <div className="more-menu">
+              {specials.map((s) => (
+                <button key={s.k} type="button" onClick={() => special(s.k)}>{s.l}</button>
+              ))}
+              <button type="button" onClick={() => { setViewOnly((v) => { send({ type: 'session.viewOnly', on: !v }); return !v }) }}>
+                {viewOnly ? '조작 켜기' : '보기만'}
+              </button>
+              <button type="button" onClick={() => { setBlank((b) => { send({ type: 'privacy.blank', on: !b }); return !b }) }}>
+                {blank ? '화면 표시' : '블랙스크린'}
+              </button>
+              <button type="button" onClick={() => setTouchpad((t) => !t)}>
+                {touchpad ? '터치패드' : '직접 터치'}
+              </button>
+              <button type="button" onClick={() => { const el = document.documentElement; if (!document.fullscreenElement) void el.requestFullscreen(); else void document.exitFullscreen() }}>
+                전체화면
+              </button>
+              <button type="button" onClick={() => setAutoQ((a) => !a)}>
+                {autoQ ? '화질 자동' : '화질 수동'}
+              </button>
+              {!autoQ && (
+                <label style={{ fontSize: 12, color: '#bbb' }}>
+                  화질
+                  <input type="range" min={30} max={90} value={quality} onChange={(e) => {
+                    const jpegQuality = Number(e.target.value)
+                    setQuality(jpegQuality)
+                    send({ type: 'quality.set', quality: { jpegQuality } })
+                  }} />
+                </label>
+              )}
+              <button type="button" onClick={() => {
+                if (recording) { recRef.current?.stop(); setRecording(false) }
+                else startRec()
+              }}>{recording ? '녹화 중지' : '세션 녹화'}</button>
+              <button type="button" onClick={() => send({ type: 'audio.toggle', on: true })}>소리 켜기</button>
+            </div>
+          )}
+        </div>
       </div>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div
@@ -500,7 +572,20 @@ export default function Session() {
           ref={stageRef}
           onDragOver={(e) => e.preventDefault()}
           onDrop={onDrop}
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
         >
+          {reconnect && (
+            <div className="overlay">
+              <div>다시 연결하는 중…</div>
+              <button className="btn" type="button" onClick={() => { retryRef.current = 0; connectWs() }}>지금 재시도</button>
+            </div>
+          )}
+          {touchpad && (
+            <div
+              className="vcursor"
+              style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}
+            />
+          )}
           <canvas
             ref={canvasRef}
             tabIndex={0}
@@ -520,6 +605,11 @@ export default function Session() {
               ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
             }}
             onPointerMove={(e) => {
+              if (viewOnly) return
+              if (e.pointerType === 'touch' && pad.current.pointers.size === 2) {
+                const pts = [...pad.current.pointers.values()]
+                // pinch handled on pointer down distance stored loosely
+              }
               if (!touchpad) return
               const prev = pad.current.pointers.get(e.pointerId)
               if (!prev) return
@@ -533,6 +623,7 @@ export default function Session() {
               }
               pad.current.x = Math.min(0.999, Math.max(0, (pad.current.x || 0.5) + dx / 900))
               pad.current.y = Math.min(0.999, Math.max(0, (pad.current.y || 0.5) + dy / 900))
+              setCursor({ x: pad.current.x, y: pad.current.y })
               send({ type: 'input.mouse', action: 'move', nx: pad.current.x, ny: pad.current.y, displayId })
             }}
             onPointerUp={(e) => {
@@ -583,8 +674,24 @@ export default function Session() {
                       {f.dir ? '📁' : '📄'} {f.name}
                     </button>
                   ))}
+                  {progress && (
+                    <div className="progress"><span style={{ width: `${Math.round((progress.sent / progress.total) * 100)}%` }} /></div>
+                  )}
+                  <label className="btn ghost" style={{ display: 'inline-block', marginTop: 8 }}>
+                    업로드
+                    <input
+                      type="file"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const list = e.target.files
+                        if (list?.length) void sendFiles(Array.from(list))
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
                   <p className="hint" style={{ color: '#888' }}>
-                    파일을 화면으로 끌어다 놓거나 Ctrl+V 로 붙여넣으면 원격 Downloads/RemoteAI 에 저장되고 클립보드에도 올라갑니다.
+                    끌어다 놓거나 붙여넣기, 업로드로 보냅니다.
                   </p>
                 </div>
               </>
@@ -630,23 +737,37 @@ export default function Session() {
           </aside>
         )}
       </div>
+      {keysOn && (
+        <div className="keys">
+          {['Escape', 'Tab', 'ControlLeft', 'AltLeft', 'MetaLeft', 'Enter', 'Backspace'].map((code) => (
+            <button
+              key={code}
+              type="button"
+              onPointerDown={() => send({ type: 'input.key', action: 'down', code, key: code })}
+              onPointerUp={() => send({ type: 'input.key', action: 'up', code, key: code })}
+            >
+              {code.replace('Left', '').replace('Meta', 'Win')}
+            </button>
+          ))}
+          <input
+            placeholder="한글 입력 후 Enter"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                send({ type: 'input.text', text: (e.target as HTMLInputElement).value })
+                ;(e.target as HTMLInputElement).value = ''
+              }
+            }}
+          />
+        </div>
+      )}
       <div className="mobile-bar">
-        <button type="button" onClick={() => setTouchpad(true)}>
-          패드
-        </button>
-        <input
-          placeholder="텍스트 전송"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              send({ type: 'input.text', text: (e.target as HTMLInputElement).value })
-              ;(e.target as HTMLInputElement).value = ''
-            }
-          }}
-        />
-        <button type="button" onClick={() => special('win')}>
-          Win
-        </button>
+        <button type="button" onClick={() => setTouchpad(true)}>커서</button>
+        <button type="button" onClick={() => setKeysOn((k) => !k)}>키보드</button>
+        <button type="button" onClick={() => setZoom((z) => Math.min(2.5, z + 0.2))}>+</button>
+        <button type="button" onClick={() => setZoom((z) => Math.max(0.6, z - 0.2))}>−</button>
+        <button type="button" onClick={() => special('win')}>Win</button>
       </div>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

@@ -33,6 +33,8 @@ import { runTool } from './ai-tools.js'
 import { startLocalApi } from './local-api.js'
 import { primaryMac, wsUrlFromHttp } from './net.js'
 import { startTray } from './tray.js'
+import { notify } from './notify.js'
+import { startAudio, stopAudio } from './audio.js'
 import { createReadStream } from 'node:fs'
 
 let cfg = loadConfig()
@@ -43,6 +45,9 @@ let viewers = 0
 let displayId = 0
 let quality: QualitySettings = { ...DEFAULT_QUALITY }
 let capturing = false
+let viewOnly = false
+let autoQuality = true
+
 let ws: WebSocket | null = null
 let nextTransfer = 1
 let lastOneTime: { code: string; expiresAt: number } | null = null
@@ -125,6 +130,10 @@ async function captureLoop() {
   while (viewers > 0) {
     const t0 = Date.now()
     try {
+      if (autoQuality) {
+        if (ws && ws.bufferedAmount > 800_000) quality = { ...quality, fps: 6, jpegQuality: 40 }
+        else quality = { ...quality, fps: 12, jpegQuality: 55 }
+      }
       if (ws && ws.bufferedAmount < 2_000_000) {
         const frame = await captureFrame(displayId, quality)
         if (frame) sendBin(frame)
@@ -219,26 +228,43 @@ async function handle(msg: Msg) {
     }
     case 'viewer.count':
       viewers = msg.n
-      if (viewers > 0) void captureLoop()
+      if (viewers > 0) {
+        void captureLoop()
+        notify('RemoteAI', '원격 접속이 시작되었습니다.')
+      }
       if (viewers === 0 && cfg.lockOnDisconnect) handleSpecial('lock')
       break
     case 'input.mouse':
-      handleMouse(msg)
+      if (!viewOnly) handleMouse(msg)
       break
     case 'input.key':
-      handleKey(msg.code, msg.action === 'down')
+      if (!viewOnly) handleKey(msg.code, msg.action === 'down')
       break
     case 'input.text':
-      handleText(msg.text)
+      if (!viewOnly) handleText(msg.text)
       break
     case 'input.special':
-      handleSpecial(msg.key)
+      if (!viewOnly) handleSpecial(msg.key)
       break
     case 'display.select':
       displayId = msg.displayId
       break
     case 'quality.set':
       quality = { ...quality, ...msg.quality }
+      autoQuality = false
+      break
+    case 'session.viewOnly':
+      viewOnly = msg.on
+      break
+    case 'session.fit':
+      quality = { ...quality, maxWidth: Math.max(640, Math.min(1920, Math.round(msg.width))) }
+      break
+    case 'ping':
+      send({ type: 'pong', t: msg.t })
+      break
+    case 'audio.toggle':
+      if (msg.on) startAudio(sendBin)
+      else stopAudio()
       break
     case 'clipboard.text':
       if (msg.origin === 'viewer') setClipboardText(msg.text)
