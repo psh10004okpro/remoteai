@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:koffi --external:node-screenshots --external:sharp --external:node-pty --external:systray2",
     "start": "node dist/index.js",
     "test:capture": "tsx src/capture-test.ts"
   },
@@ -14,6 +14,7 @@
     "node-screenshots": "^0.2.8",
     "sharp": "^0.33.5",
     "ssh2": "^1.16.0",
+    "werift": "^0.22.2",
     "ws": "^8.18.1"
   },
   "optionalDependencies": {

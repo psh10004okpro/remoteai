@@ -40,7 +40,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const r = await fetch(path, { ...init, headers })
   const body = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error((body as { error?: string }).error || r.statusText)
+  if (!r.ok) {
+    const err = new Error((body as { error?: string }).error || r.statusText) as Error & { status: number }
+    err.status = r.status
+    throw err
+  }
   return body as T
 }
 

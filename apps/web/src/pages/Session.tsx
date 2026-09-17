@@ -54,11 +54,23 @@ export default function Session() {
   const [toast, setToast] = useState('')
   const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null)
   const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
   const [recording, setRecording] = useState(false)
+  const [soundOn, setSoundOn] = useState(false)
+  const [rtcOn, setRtcOn] = useState(false)
   const [cursor, setCursor] = useState({ x: 0.5, y: 0.5 })
-  const pad = useRef({ x: 0.5, y: 0.5, moved: false, pointers: new Map<number, { x: number; y: number }>() })
+  const pad = useRef({
+    x: 0.5,
+    y: 0.5,
+    moved: false,
+    pointers: new Map<number, { x: number; y: number }>(),
+    pinchDist: 0,
+    pinchZoom: 1,
+  })
   const frameSize = useRef({ w: 16, h: 9 })
   const recRef = useRef<MediaRecorder | null>(null)
+  const rtcRef = useRef<RTCPeerConnection | null>(null)
+  const vdec = useRef<VideoDecoder | null>(null)
   const audioCtx = useRef<AudioContext | null>(null)
   const recChunks = useRef<Blob[]>([])
   const retryRef = useRef(0)
@@ -110,31 +122,21 @@ export default function Session() {
     const ws = connectWs()
     msgHandler.current = (ev) => {
       if (typeof ev.data !== 'string') {
-        const buf = new Uint8Array(ev.data as ArrayBuffer)
-        if (buf[0] === BINARY.JPEG) {
-          const frame = decodeJpegFrame(buf)
-          if (frame) drawJpeg(frame.jpeg, frame.width, frame.height)
-          return
-        }
-        if (buf[0] === BINARY.FILE) {
-          const chunk = decodeFileChunk(buf)
-          if (!chunk) return
-          const rec = incoming.current.get(chunk.transferId)
-          if (rec && chunk.chunk.length) rec.chunks.push(chunk.chunk)
-          return
-        }
-        if (buf[0] === BINARY.PTY) {
-          const d = decodePty(buf)
-          if (d && term.current) term.current.write(new TextDecoder().decode(d))
-        }
-        if (buf[0] === BINARY.AUDIO) {
-          const pcm = decodeAudio(buf)
-          if (pcm) playPcm(pcm)
-        }
+        handleBin(new Uint8Array(ev.data as ArrayBuffer))
         return
       }
       const msg = JSON.parse(ev.data) as Msg
       switch (msg.type) {
+        case 'webrtc.offer':
+          void applyOffer(msg.sdp)
+          break
+        case 'webrtc.ice':
+          void rtcRef.current?.addIceCandidate({
+            candidate: msg.candidate,
+            sdpMid: msg.sdpMid ?? undefined,
+            sdpMLineIndex: msg.sdpMLineIndex ?? undefined,
+          }).catch(() => undefined)
+          break
         case 'viewer.welcome':
           setStatus(`${msg.name} 연결됨`)
           setName(msg.name)
@@ -221,14 +223,116 @@ export default function Session() {
     const ping = setInterval(() => send({ type: 'ping', t: Date.now() }), 2000)
     const onResize = () => send({ type: 'session.fit', width: window.innerWidth, height: window.innerHeight })
     window.addEventListener('resize', onResize)
+    const closeMore = () => setMore(false)
+    window.addEventListener('click', closeMore)
     return () => {
       alive.current = false
       clearInterval(ping)
       window.removeEventListener('resize', onResize)
+      window.removeEventListener('click', closeMore)
       ws.close()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, password, code, accountToken])
+
+  function handleBin(buf: Uint8Array) {
+    if (buf[0] === BINARY.JPEG) {
+      const frame = decodeJpegFrame(buf)
+      if (frame) drawJpeg(frame.jpeg, frame.width, frame.height)
+      return
+    }
+    if (buf[0] === BINARY.H264) {
+      decodeH264(buf)
+      return
+    }
+    if (buf[0] === BINARY.FILE) {
+      const chunk = decodeFileChunk(buf)
+      if (!chunk) return
+      const rec = incoming.current.get(chunk.transferId)
+      if (rec && chunk.chunk.length) rec.chunks.push(chunk.chunk)
+      return
+    }
+    if (buf[0] === BINARY.PTY) {
+      const d = decodePty(buf)
+      if (d && term.current) term.current.write(new TextDecoder().decode(d))
+      return
+    }
+    if (buf[0] === BINARY.AUDIO) {
+      const pcm = decodeAudio(buf)
+      if (pcm) playPcm(pcm)
+    }
+  }
+
+  async function applyOffer(sdp: string) {
+    try {
+      rtcRef.current?.close()
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      rtcRef.current = pc
+      pc.ondatachannel = (ev) => {
+        ev.channel.binaryType = 'arraybuffer'
+        ev.channel.onmessage = (e) => handleBin(new Uint8Array(e.data as ArrayBuffer))
+        setRtcOn(true)
+      }
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          send({
+            type: 'webrtc.ice',
+            candidate: ev.candidate.candidate,
+            sdpMid: ev.candidate.sdpMid,
+            sdpMLineIndex: ev.candidate.sdpMLineIndex,
+          })
+        }
+      }
+      await pc.setRemoteDescription({ type: 'offer', sdp })
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      send({ type: 'webrtc.answer', sdp: answer.sdp || '' })
+    } catch {
+      send({ type: 'webrtc.failed' })
+    }
+  }
+
+  function decodeH264(buf: Uint8Array) {
+    if (typeof VideoDecoder === 'undefined') return
+    const key = buf[1] === 1
+    const nal = buf.subarray(2)
+    const framed = new Uint8Array(4 + nal.length)
+    framed[0] = 0
+    framed[1] = 0
+    framed[2] = 0
+    framed[3] = 1
+    framed.set(nal, 4)
+    try {
+      if (!vdec.current || vdec.current.state === 'closed') {
+        const dec = new VideoDecoder({
+          output: (frame) => {
+            const c = canvasRef.current
+            if (c) {
+              if (c.width !== frame.displayWidth) c.width = frame.displayWidth
+              if (c.height !== frame.displayHeight) c.height = frame.displayHeight
+              c.getContext('2d')?.drawImage(frame, 0, 0)
+            }
+            frame.close()
+          },
+          error: () => {
+            vdec.current = null
+          },
+        })
+        dec.configure({ codec: 'avc1.42E01E', optimizeForLatency: true })
+        vdec.current = dec
+      }
+      if (vdec.current.state !== 'configured') return
+      vdec.current.decode(
+        new EncodedVideoChunk({
+          type: key ? 'key' : 'delta',
+          timestamp: Math.round(performance.now() * 1000),
+          data: framed,
+        }),
+      )
+    } catch {
+      vdec.current = null
+    }
+  }
 
   function drawJpeg(jpeg: Uint8Array, w: number, h: number) {
     frameSize.current = { w, h }
@@ -504,7 +608,7 @@ export default function Session() {
         <Link to="/" style={{ color: '#ccc', fontSize: 13 }}>
           나가기
         </Link>
-        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}</span>
+        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}{rtcOn ? ' · P2P' : ''}</span>
         {displays.length > 1 && (
           <select
             value={displayId}
@@ -526,9 +630,9 @@ export default function Session() {
         <button type="button" onClick={() => setPanel(panel === 'term' ? 'none' : 'term')}>터미널</button>
         <span className="spacer" />
         <div className="more">
-          <button type="button" onClick={() => setMore((m) => !m)}>더보기</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); setMore((m) => !m) }}>더보기</button>
           {more && (
-            <div className="more-menu">
+            <div className="more-menu" onClick={(e) => e.stopPropagation()}>
               {specials.map((s) => (
                 <button key={s.k} type="button" onClick={() => special(s.k)}>{s.l}</button>
               ))}
@@ -544,7 +648,11 @@ export default function Session() {
               <button type="button" onClick={() => { const el = document.documentElement; if (!document.fullscreenElement) void el.requestFullscreen(); else void document.exitFullscreen() }}>
                 전체화면
               </button>
-              <button type="button" onClick={() => setAutoQ((a) => !a)}>
+              <button type="button" onClick={() => setAutoQ((a) => {
+                const next = !a
+                send({ type: 'quality.auto', on: next })
+                return next
+              })}>
                 {autoQ ? '화질 자동' : '화질 수동'}
               </button>
               {!autoQ && (
@@ -561,7 +669,12 @@ export default function Session() {
                 if (recording) { recRef.current?.stop(); setRecording(false) }
                 else startRec()
               }}>{recording ? '녹화 중지' : '세션 녹화'}</button>
-              <button type="button" onClick={() => send({ type: 'audio.toggle', on: true })}>소리 켜기</button>
+              <button type="button" onClick={() => {
+                setSoundOn((s) => {
+                  send({ type: 'audio.toggle', on: !s })
+                  return !s
+                })
+              }}>{soundOn ? '소리 끄기' : '소리 켜기'}</button>
             </div>
           )}
         </div>
@@ -602,14 +715,15 @@ export default function Session() {
               if (!touchpad) return
               pad.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
               pad.current.moved = false
+              if (pad.current.pointers.size === 2) {
+                const pts = [...pad.current.pointers.values()]
+                pad.current.pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+                pad.current.pinchZoom = zoomRef.current
+              }
               ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
             }}
             onPointerMove={(e) => {
               if (viewOnly) return
-              if (e.pointerType === 'touch' && pad.current.pointers.size === 2) {
-                const pts = [...pad.current.pointers.values()]
-                // pinch handled on pointer down distance stored loosely
-              }
               if (!touchpad) return
               const prev = pad.current.pointers.get(e.pointerId)
               if (!prev) return
@@ -618,7 +732,13 @@ export default function Session() {
               pad.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
               if (Math.abs(dx) + Math.abs(dy) > 2) pad.current.moved = true
               if (pad.current.pointers.size >= 2) {
-                send({ type: 'input.mouse', action: 'wheel', dy: dy * 4, displayId })
+                const pts = [...pad.current.pointers.values()]
+                const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+                if (pad.current.pinchDist > 8) {
+                  const z = Math.min(2.5, Math.max(0.6, pad.current.pinchZoom * (d / pad.current.pinchDist)))
+                  zoomRef.current = z
+                  setZoom(z)
+                }
                 return
               }
               pad.current.x = Math.min(0.999, Math.max(0, (pad.current.x || 0.5) + dx / 900))
@@ -763,8 +883,8 @@ export default function Session() {
       <div className="mobile-bar">
         <button type="button" onClick={() => setTouchpad(true)}>커서</button>
         <button type="button" onClick={() => setKeysOn((k) => !k)}>키보드</button>
-        <button type="button" onClick={() => setZoom((z) => Math.min(2.5, z + 0.2))}>+</button>
-        <button type="button" onClick={() => setZoom((z) => Math.max(0.6, z - 0.2))}>−</button>
+        <button type="button" onClick={() => { const z = Math.min(2.5, zoomRef.current + 0.2); zoomRef.current = z; setZoom(z) }}>+</button>
+        <button type="button" onClick={() => { const z = Math.max(0.6, zoomRef.current - 0.2); zoomRef.current = z; setZoom(z) }}>−</button>
         <button type="button" onClick={() => special('win')}>Win</button>
       </div>
       {toast && <div className="toast">{toast}</div>}

@@ -293,12 +293,19 @@ app.post('/api/devices/:id/wol', async (req, res) => {
     res.status(404).json({ error: 'MAC 주소가 없습니다.' })
     return
   }
-  const r = await sendWol(d.mac)
-  if (!r.ok) {
-    res.status(400).json(r)
+  const helpers = listDevicesForUser(user.username).filter((x) => x.id !== d.id && rooms.get(x.id)?.host)
+  const helper = helpers[0]
+  if (!helper?.id) {
+    res.status(409).json({ error: '같은 집에 켜져 있는 다른 컴퓨터가 필요합니다. (꺼진 PC는 허브가 아니라 그 PC가 깨웁니다.)' })
     return
   }
-  res.json(r)
+  const room = rooms.get(helper.id)
+  if (!room?.host) {
+    res.status(409).json({ error: '도와줄 호스트가 없습니다.' })
+    return
+  }
+  send(room.host.ws, { type: 'wol.request', mac: d.mac })
+  res.json({ ok: true, via: helper.name })
 })
 
 function PROTOCOL_VERSION_SAFE() {

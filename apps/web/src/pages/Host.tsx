@@ -9,6 +9,8 @@ export default function Host() {
   const [err, setErr] = useState('')
   const [accUser, setAccUser] = useState('')
   const [accPass, setAccPass] = useState('')
+  const [accTotp, setAccTotp] = useState('')
+  const [needTotp, setNeedTotp] = useState(false)
   const [serverUrl, setServerUrl] = useState('')
   const [hubMode, setHubMode] = useState<boolean | null>(null)
 
@@ -116,6 +118,12 @@ export default function Host() {
           <input value={accUser} onChange={(e) => setAccUser(e.target.value)} />
           <label>비밀번호</label>
           <input type="password" value={accPass} onChange={(e) => setAccPass(e.target.value)} />
+          {needTotp && (
+            <>
+              <label>인증 앱 코드</label>
+              <input value={accTotp} onChange={(e) => setAccTotp(e.target.value)} inputMode="numeric" />
+            </>
+          )}
           <div className="row" style={{ marginTop: 12 }}>
             <button
               className="btn"
@@ -124,13 +132,18 @@ export default function Host() {
                 const r = await fetch(localHostUrl() + '/login', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ username: accUser, password: accPass }),
+                  body: JSON.stringify({ username: accUser, password: accPass, totp: accTotp || undefined }),
                 })
                 const body = await r.json()
-                if (!body.ok) setErr(body.error || '로그인 실패')
+                if (body.totpRequired && !body.ok) {
+                  setNeedTotp(true)
+                  setErr(body.error || '인증 앱 코드를 입력하세요.')
+                } else if (!body.ok) setErr(body.error || '로그인 실패')
                 else {
                   setErr('')
                   setAccPass('')
+                  setAccTotp('')
+                  setNeedTotp(false)
                   await refresh()
                 }
               }}

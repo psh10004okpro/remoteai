@@ -57,10 +57,12 @@ export default function Home() {
           body: JSON.stringify({ accountToken: getToken(), accountUser: getUser() }),
         }).catch(() => undefined)
       }
-    } catch {
-      clearSession()
-      setUser('')
-      setDevices([])
+    } catch (e) {
+      if ((e as { status?: number }).status === 401) {
+        clearSession()
+        setUser('')
+        setDevices([])
+      }
     }
   }
 
@@ -220,7 +222,17 @@ export default function Home() {
                       이름
                     </button>
                     {!d.online && d.mac && (
-                      <button className="btn ghost" type="button" onClick={() => wakeDevice(d.id)}>
+                      <button
+                        className="btn ghost"
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await wakeDevice(d.id)
+                          } catch (e) {
+                            setErr(e instanceof Error ? e.message : String(e))
+                          }
+                        }}
+                      >
                         켜기
                       </button>
                     )}
@@ -273,6 +285,7 @@ export default function Home() {
 function TwoFactor() {
   const [on, setOn] = useState(false)
   const [secret, setSecret] = useState('')
+  const [otpauthUrl, setOtpauth] = useState('')
   const [code, setCode] = useState('')
   const [msg, setMsg] = useState('')
   useEffect(() => {
@@ -284,7 +297,22 @@ function TwoFactor() {
     <details className="adv" style={{ marginBottom: 12 }}>
       <summary>2단계 인증</summary>
       {on ? (
-        <p className="hint">켜져 있습니다. 로그인 때 인증 앱 코드가 필요합니다.</p>
+        <>
+          <p className="hint">켜져 있습니다. 로그인 때 인증 앱 코드가 필요합니다.</p>
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="끌 때 앱 코드" />
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={async () => {
+              await api('/api/2fa/disable', { method: 'POST', body: JSON.stringify({ code }) })
+              setOn(false)
+              setSecret('')
+              setMsg('2단계 인증을 껐습니다.')
+            }}
+          >
+            끄기
+          </button>
+        </>
       ) : (
         <>
           <button
@@ -293,13 +321,22 @@ function TwoFactor() {
             onClick={async () => {
               const r = await api<{ secret: string; otpauth: string }>('/api/2fa/setup', { method: 'POST' })
               setSecret(r.secret)
-              setMsg('인증 앱에 시크릿을 추가한 뒤 코드를 입력하세요.')
+              setOtpauth(r.otpauth)
+              setMsg('QR을 찍거나 시크릿을 인증 앱에 넣은 뒤 코드를 입력하세요.')
             }}
           >
             설정 시작
           </button>
           {secret && (
             <>
+              {otpauthUrl && (
+                <img
+                  alt="2FA QR"
+                  width={180}
+                  height={180}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauthUrl)}`}
+                />
+              )}
               <p className="hint" style={{ wordBreak: 'break-all' }}>{secret}</p>
               <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6자리" />
               <button

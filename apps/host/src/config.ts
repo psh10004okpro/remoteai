@@ -3,6 +3,18 @@ import path from 'node:path'
 import os from 'node:os'
 import { generatePin, DEFAULT_PORT } from '@remoteai/protocol'
 
+export const PUBLIC_HUB = 'https://n14di7zep9bvjhkkrk1rlfw9.64.176.227.93.sslip.io'
+
+export function isPackaged() {
+  return process.env.REMOTEAI_PACKAGED === '1'
+}
+
+export function defaultServerUrl() {
+  if (process.env.REMOTEAI_HUB) return process.env.REMOTEAI_HUB.replace(/\/$/, '')
+  if (isPackaged()) return PUBLIC_HUB
+  return `http://127.0.0.1:${DEFAULT_PORT}`
+}
+
 export type HostConfig = {
   deviceId?: string
   token?: string
@@ -31,7 +43,7 @@ export function loadConfig(): HostConfig {
       deviceId: raw.deviceId,
       token: raw.token,
       password: raw.password || generatePin(),
-      serverUrl: raw.serverUrl || `http://127.0.0.1:${DEFAULT_PORT}`,
+      serverUrl: raw.serverUrl || defaultServerUrl(),
       autoStart: raw.autoStart ?? true,
       sshLan: raw.sshLan ?? false,
       lockOnDisconnect: raw.lockOnDisconnect ?? false,
@@ -41,7 +53,7 @@ export function loadConfig(): HostConfig {
   } catch {
     const cfg: HostConfig = {
       password: generatePin(),
-      serverUrl: `http://127.0.0.1:${DEFAULT_PORT}`,
+      serverUrl: defaultServerUrl(),
       autoStart: true,
       sshLan: false,
       lockOnDisconnect: false,

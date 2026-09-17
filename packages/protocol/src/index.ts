@@ -10,6 +10,7 @@ export const BINARY = {
   FILE: 2,
   PTY: 3,
   AUDIO: 4,
+  H264: 5,
 } as const
 
 export type BinaryKind = (typeof BINARY)[keyof typeof BINARY]
@@ -107,6 +108,11 @@ export type Msg =
   | { type: 'session.fit'; width: number; height: number }
   | { type: 'file.progress'; transferId: number; sent: number; total: number }
   | { type: 'audio.toggle'; on: boolean }
+  | { type: 'quality.auto'; on: boolean }
+  | { type: 'webrtc.offer'; sdp: string }
+  | { type: 'webrtc.answer'; sdp: string }
+  | { type: 'webrtc.ice'; candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }
+  | { type: 'webrtc.failed' }
   | { type: 'clipboard.text'; text: string; origin: 'host' | 'viewer' }
   | { type: 'clipboard.files.offer'; origin: 'host' | 'viewer'; batchId: string; files: { name: string; size: number; relativePath: string }[] }
   | { type: 'clipboard.files.accept' }
@@ -130,7 +136,7 @@ export type Msg =
   | { type: 'term.close' }
   | { type: 'privacy.blank'; on: boolean }
   | { type: 'host.lock' }
-  | { type: 'wol.request' }
+  | { type: 'wol.request'; mac: string }
   | { type: 'ping'; t: number }
   | { type: 'pong'; t: number }
   | { type: 'oneTime.create' }

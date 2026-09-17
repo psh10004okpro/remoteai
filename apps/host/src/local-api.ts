@@ -16,7 +16,11 @@ export type LocalState = {
   displays: () => unknown
   oneTime?: () => void
   lastOneTime?: () => { code: string; expiresAt: number } | null
-  login?: (username: string, password: string) => Promise<{ ok: boolean; error?: string; username?: string }>
+  login?: (
+    username: string,
+    password: string,
+    totp?: string,
+  ) => Promise<{ ok: boolean; error?: string; username?: string; totpRequired?: boolean }>
   logout?: () => void
 }
 
@@ -67,12 +71,12 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
     }
     if (req.method === 'POST' && url.pathname === '/local/login') {
       readBody(req).then(async (body) => {
-        const b = body as { username?: string; password?: string }
+        const b = body as { username?: string; password?: string; totp?: string }
         if (!state.login) {
           json(res, { ok: false, error: 'login unavailable' })
           return
         }
-        const r = await state.login(String(b.username || ''), String(b.password || ''))
+        const r = await state.login(String(b.username || ''), String(b.password || ''), b.totp)
         json(res, r)
       })
       return

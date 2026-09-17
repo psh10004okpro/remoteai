@@ -12,7 +12,8 @@
     "build": "npm run build -w @remoteai/protocol && npm run build -w @remoteai/server && npm run build -w @remoteai/web && npm run build -w @remoteai/host",
     "start": "npm run start -w @remoteai/server",
     "start:host": "npm run start -w @remoteai/host",
-    "hub": "npm run dev -w @remoteai/server"
+    "hub": "npm run dev -w @remoteai/server",
+    "pack:host": "npm run build -w @remoteai/host && node scripts/pack-host.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

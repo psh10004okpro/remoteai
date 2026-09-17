@@ -35,6 +35,9 @@ import { primaryMac, wsUrlFromHttp } from './net.js'
 import { startTray } from './tray.js'
 import { notify } from './notify.js'
 import { startAudio, stopAudio } from './audio.js'
+import { sendMagic } from './wol.js'
+import { addIce, closeRtc, createOffer, sendRtc, setAnswer } from './webrtc.js'
+import { h264Running, startH264, stopH264 } from './h264.js'
 import { createReadStream } from 'node:fs'
 
 let cfg = loadConfig()
@@ -47,6 +50,7 @@ let quality: QualitySettings = { ...DEFAULT_QUALITY }
 let capturing = false
 let viewOnly = false
 let autoQuality = true
+let rtcOpen = false
 
 let ws: WebSocket | null = null
 let nextTransfer = 1
@@ -58,11 +62,13 @@ function send(msg: Msg) {
 }
 
 function sendBin(data: Uint8Array) {
+  if (sendRtc(data)) return
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(data)
 }
 
 function openUi() {
-  const url = 'http://127.0.0.1:5173/#/'
+  const base = cfg.serverUrl.replace(/\/$/, '')
+  const url = `${base}/#/host`
   exec(`cmd /c start "" "${url}"`)
 }
 
@@ -91,14 +97,15 @@ startLocalApi({
     send({ type: 'oneTime.create' })
   },
   lastOneTime: () => lastOneTime,
-  login: async (username, password) => {
+  login: async (username, password, totp) => {
     try {
       const r = await fetch(cfg.serverUrl.replace(/\/$/, '') + '/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, totp }),
       })
-      const body = (await r.json()) as { token?: string; username?: string; error?: string }
+      const body = (await r.json()) as { token?: string; username?: string; error?: string; totpRequired?: boolean }
+      if (body.totpRequired && !body.token) return { ok: false, totpRequired: true, error: body.error || '인증 앱 코드가 필요합니다.' }
       if (!r.ok || !body.token) return { ok: false, error: body.error || '로그인 실패' }
       cfg = { ...cfg, accountUser: body.username, accountToken: body.token }
       saveConfig(cfg)
@@ -130,6 +137,10 @@ async function captureLoop() {
   while (viewers > 0) {
     const t0 = Date.now()
     try {
+      if (h264Running() && rtcOpen) {
+        await new Promise((r) => setTimeout(r, 200))
+        continue
+      }
       if (autoQuality) {
         if (ws && ws.bufferedAmount > 800_000) quality = { ...quality, fps: 6, jpegQuality: 40 }
         else quality = { ...quality, fps: 12, jpegQuality: 55 }
@@ -231,8 +242,28 @@ async function handle(msg: Msg) {
       if (viewers > 0) {
         void captureLoop()
         notify('RemoteAI', '원격 접속이 시작되었습니다.')
+        void (async () => {
+          const sdp = await createOffer({
+            onIce: (ice) => send({ type: 'webrtc.ice', ...ice }),
+            onOpen: () => {
+              rtcOpen = true
+              startH264((b) => sendBin(b))
+            },
+          })
+          if (sdp) send({ type: 'webrtc.offer', sdp })
+        })()
+      } else {
+        rtcOpen = false
+        stopH264()
+        void closeRtc()
+        if (cfg.lockOnDisconnect) handleSpecial('lock')
       }
-      if (viewers === 0 && cfg.lockOnDisconnect) handleSpecial('lock')
+      break
+    case 'webrtc.answer':
+      void setAnswer(msg.sdp)
+      break
+    case 'webrtc.ice':
+      void addIce({ candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex })
       break
     case 'input.mouse':
       if (!viewOnly) handleMouse(msg)
@@ -253,6 +284,9 @@ async function handle(msg: Msg) {
       quality = { ...quality, ...msg.quality }
       autoQuality = false
       break
+    case 'quality.auto':
+      autoQuality = msg.on
+      break
     case 'session.viewOnly':
       viewOnly = msg.on
       break
@@ -265,6 +299,9 @@ async function handle(msg: Msg) {
     case 'audio.toggle':
       if (msg.on) startAudio(sendBin)
       else stopAudio()
+      break
+    case 'wol.request':
+      if (msg.mac) sendMagic(msg.mac)
       break
     case 'clipboard.text':
       if (msg.origin === 'viewer') setClipboardText(msg.text)

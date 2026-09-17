@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { configDir, loadConfig } from './config.js'
+import { configDir, isPackaged, loadConfig } from './config.js'
 import { isLocalHub } from './net.js'
 import { log } from './log.js'
 
@@ -27,6 +27,24 @@ function tsxCli() {
 
 export function writeRuntimeCmd() {
   const starter = path.join(configDir(), 'start-host.cmd')
+  if (isPackaged()) {
+    const home = (process.env.REMOTEAI_HOME || path.dirname(process.execPath)).replace(/\\$/, '')
+    const node = path.join(home, 'node.exe')
+    const entry = path.join(home, 'app', 'index.js')
+    const cmd = [
+      '@echo off',
+      `cd /d "${home}"`,
+      'set REMOTEAI_PACKAGED=1',
+      `set REMOTEAI_HOME=${home}`,
+      ':hostloop',
+      `"${node}" "${entry}" --silent`,
+      'timeout /t 4 /nobreak >nul',
+      'goto hostloop',
+      '',
+    ].join('\r\n')
+    writeFileSync(starter, cmd)
+    return starter
+  }
   const node = process.execPath
   const tsx = tsxCli()
   const cwd = repoRoot()
