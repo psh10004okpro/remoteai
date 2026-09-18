@@ -67,14 +67,19 @@ export async function captureFrame(displayId: number, quality: QualitySettings) 
   if (!d) return null
 
   if (screenshots) {
-    const monitors = screenshots.Monitor.all()
-    const m = monitors[displayId] || monitors.find((x) => x.isPrimary()) || monitors[0]
-    if (!m) return null
-    const image = m.captureImageSync()
-    const raw = image.toRawSync()
-    drawCursor(raw, image.width, image.height, m.x(), m.y())
-    const { jpeg, width, height } = await jpegFromRgba(raw, image.width, image.height, quality)
-    return encodeJpegFrame(displayId, width, height, jpeg)
+    try {
+      const monitors = screenshots.Monitor.all()
+      const m = monitors[displayId] || monitors.find((x) => x.isPrimary()) || monitors[0]
+      if (m) {
+        const image = m.captureImageSync()
+        const raw = image.toRawSync()
+        drawCursor(raw, image.width, image.height, m.x(), m.y())
+        const { jpeg, width, height } = await jpegFromRgba(raw, image.width, image.height, quality)
+        return encodeJpegFrame(displayId, width, height, jpeg)
+      }
+    } catch (e) {
+      log('dxgi capture failed, gdi', e)
+    }
   }
 
   const bgra = captureGdiBgra(d.x, d.y, d.width, d.height)

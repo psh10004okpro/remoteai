@@ -63,71 +63,67 @@ writeFileSync(
 
 writeFileSync(
   path.join(out, 'install.ps1'),
-  `param([switch]$Service)
-$ErrorActionPreference = 'Stop'
-if ($Service) {
-  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $pr = New-Object Security.Principal.WindowsPrincipal $id
-  if (-not $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Service"
-    exit 0
-  }
-}
-$src = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dest = if ($Service) { Join-Path $env:ProgramFiles 'RemoteAI' } else { Join-Path $env:LOCALAPPDATA 'Programs\\RemoteAI' }
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Get-ChildItem $src -Force | Where-Object { $_.Name -notin @('install.ps1','설치.cmd','설치-서비스.cmd') } | ForEach-Object {
-  Copy-Item $_.FullName -Destination $dest -Recurse -Force
-}
-$cmd = Join-Path $dest 'RemoteAI.cmd'
-$w = New-Object -ComObject WScript.Shell
-$desk = $w.SpecialFolders('Desktop')
-$sc = $w.CreateShortcut((Join-Path $desk 'RemoteAI.lnk'))
-$sc.TargetPath = $cmd
-$sc.WorkingDirectory = $dest
-$sc.Description = 'RemoteAI 호스트'
-$sc.Save()
-$start = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\RemoteAI.lnk'
-$sc2 = $w.CreateShortcut($start)
-$sc2.TargetPath = $cmd
-$sc2.WorkingDirectory = $dest
-$sc2.Save()
-if ($Service) {
-  $exe = Join-Path $dest 'RemoteAI-service.exe'
-  if (-not (Test-Path $exe)) { throw 'RemoteAI-service.exe 가 없습니다. pack:host 를 다시 하세요.' }
-  $xml = @"
-<service>
-  <id>RemoteAIHost</id>
-  <name>RemoteAI Host</name>
-  <description>RemoteAI 호스트 (로그인 화면 포함)</description>
-  <executable>$dest\\node.exe</executable>
-  <arguments>"$dest\\app\\index.js" --service</arguments>
-  <workingdirectory>$dest</workingdirectory>
-  <stoptimeout>8sec</stoptimeout>
-  <onfailure action="restart" delay="4 sec"/>
-  <logpath>$dest</logpath>
-  <log mode="roll-by-size">
-    <sizeThreshold>1048576</sizeThreshold>
-    <keepFiles>3</keepFiles>
-  </log>
-  <env name="REMOTEAI_PACKAGED" value="1"/>
-  <env name="REMOTEAI_HOME" value="$dest"/>
-  <startmode>Automatic</startmode>
-  <delayedAutoStart>true</delayedAutoStart>
-</service>
-"@
-  $xmlPath = Join-Path $dest 'RemoteAI-service.xml'
-  Set-Content -Path $xmlPath -Value $xml -Encoding UTF8
-  & $exe uninstall 2>$null
-  & $exe install
-  Start-Service RemoteAIHost
-  Write-Host 'Windows 서비스로 설치했습니다. 부팅·로그인 화면부터 대기합니다.'
-} else {
-  Start-Process $cmd
-  Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'
-}
-Write-Host $dest
-`,
+  [
+    'param([switch]$Service)',
+    "$ErrorActionPreference = 'Stop'",
+    'if ($Service) {',
+    '  $id = [Security.Principal.WindowsIdentity]::GetCurrent()',
+    '  $pr = New-Object Security.Principal.WindowsPrincipal $id',
+    '  if (-not $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {',
+    '    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Service"',
+    '    exit 0',
+    '  }',
+    '}',
+    '$src = Split-Path -Parent $MyInvocation.MyCommand.Path',
+    "if ($Service) { $dest = Join-Path $env:ProgramFiles 'RemoteAI' } else { $dest = Join-Path $env:LOCALAPPDATA 'Programs\\RemoteAI' }",
+    'New-Item -ItemType Directory -Force -Path $dest | Out-Null',
+    "Get-ChildItem $src -Force | Where-Object { $_.Name -notin @('install.ps1','설치.cmd','설치-서비스.cmd') } | ForEach-Object {",
+    '  Copy-Item $_.FullName -Destination $dest -Recurse -Force',
+    '}',
+    "$cmd = Join-Path $dest 'RemoteAI.cmd'",
+    "$w = New-Object -ComObject WScript.Shell",
+    "$desk = $w.SpecialFolders('Desktop')",
+    "$sc = $w.CreateShortcut((Join-Path $desk 'RemoteAI.lnk'))",
+    '$sc.TargetPath = $cmd',
+    '$sc.WorkingDirectory = $dest',
+    "$sc.Description = 'RemoteAI 호스트'",
+    '$sc.Save()',
+    "$start = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\RemoteAI.lnk'",
+    '$sc2 = $w.CreateShortcut($start)',
+    '$sc2.TargetPath = $cmd',
+    '$sc2.WorkingDirectory = $dest',
+    '$sc2.Save()',
+    'if ($Service) {',
+    "  $exe = Join-Path $dest 'RemoteAI-service.exe'",
+    "  if (-not (Test-Path $exe)) { throw 'RemoteAI-service.exe 가 없습니다. pack:host 를 다시 하세요.' }",
+    "  $node = Join-Path $dest 'node.exe'",
+    "  $entry = Join-Path $dest 'app\\index.js'",
+    "  $xmlPath = Join-Path $dest 'RemoteAI-service.xml'",
+    "  $xml = '<service>'",
+    "  $xml += '<id>RemoteAIHost</id><name>RemoteAI Host</name>'",
+    "  $xml += '<description>RemoteAI host</description>'",
+    "  $xml += '<executable>' + $node + '</executable>'",
+    "  $xml += '<arguments>\"' + $entry + '\" --service</arguments>'",
+    "  $xml += '<workingdirectory>' + $dest + '</workingdirectory>'",
+    "  $xml += '<stoptimeout>8sec</stoptimeout>'",
+    "  $xml += '<onfailure action=\"restart\" delay=\"4 sec\"/>'",
+    "  $xml += '<logpath>' + $dest + '</logpath>'",
+    "  $xml += '<env name=\"REMOTEAI_PACKAGED\" value=\"1\"/>'",
+    "  $xml += '<env name=\"REMOTEAI_HOME\" value=\"' + $dest + '\"/>'",
+    "  $xml += '<startmode>Automatic</startmode><delayedAutoStart>true</delayedAutoStart>'",
+    "  $xml += '</service>'",
+    '  Set-Content -Path $xmlPath -Value $xml -Encoding UTF8',
+    '  & $exe uninstall 2>$null',
+    '  & $exe install',
+    '  Start-Service RemoteAIHost',
+    "  Write-Host 'Windows 서비스로 설치했습니다. 부팅·로그인 화면부터 대기합니다.'",
+    '} else {',
+    '  Start-Process $cmd',
+    "  Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'",
+    '}',
+    'Write-Host $dest',
+    '',
+  ].join('\r\n'),
 )
 
 writeFileSync(
