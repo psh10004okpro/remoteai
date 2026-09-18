@@ -16,9 +16,12 @@ import {
   createUser,
   getDevice,
   hashToken,
+  consumeRecovery,
   getUserRecord,
   issueSession,
   listDevicesForUser,
+  makeRecoveryCodes,
+  recoveryHash,
   loadStore,
   loginUser,
   logoutSession,
@@ -137,6 +140,32 @@ function bearer(req: express.Request) {
   return (req.body && req.body.token) || req.query.token || ''
 }
 
+function iceServers() {
+  const list: { urls: string; username?: string; credential?: string }[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ]
+  const turn = (process.env.TURN_URL || '').trim()
+  if (turn) {
+    const cred = {
+      username: process.env.TURN_USERNAME || undefined,
+      credential: process.env.TURN_CREDENTIAL || undefined,
+    }
+    list.push({ urls: turn, ...cred })
+    if (!/[?&]transport=/.test(turn)) {
+      const base = turn.replace(/\?.*$/, '')
+      list.push({ urls: `${base}?transport=udp`, ...cred })
+      list.push({ urls: `${base}?transport=tcp`, ...cred })
+    }
+  }
+  return list
+}
+
+app.get('/api/ice', (_req, res) => {
+  res.json({ iceServers: iceServers() })
+})
+
 app.get('/api/health', (_req, res) => {
   const lan = lanIps()
   const pub = publicBase()
@@ -182,8 +211,10 @@ app.post('/api/login', (req, res) => {
       return
     }
     const rec = getUserRecord(username)
-    if (!rec?.totpSecret || !totpOk(rec.totpSecret, totp)) {
-      res.status(401).json({ error: '인증 앱 코드가 올바르지 않습니다.', totpRequired: true })
+    const totpGood = rec?.totpSecret && totpOk(rec.totpSecret, totp)
+    const recGood = rec && consumeRecovery(rec, totp)
+    if (!rec || (!totpGood && !recGood)) {
+      res.status(401).json({ error: '인증 앱 코드 또는 복구 코드가 올바르지 않습니다.', totpRequired: true })
       return
     }
     const token = issueSession(rec)
@@ -214,6 +245,15 @@ app.post('/api/2fa/setup', (req, res) => {
     res.status(401).json({ error: '로그인이 필요합니다.' })
     return
   }
+  if (user.totpEnabled) {
+    const code = String(req.body?.code || '')
+    const totpGood = !!(user.totpSecret && totpOk(user.totpSecret, code))
+    if (!totpGood && !consumeRecovery(user, code)) {
+      res.status(400).json({ error: '이미 켜져 있습니다. 먼저 끄려면 인증 앱 코드 또는 복구 코드가 필요합니다.' })
+      return
+    }
+    user.recoveryHashes = []
+  }
   const secret = randomSecret()
   user.totpSecret = secret
   user.totpEnabled = false
@@ -232,8 +272,10 @@ app.post('/api/2fa/enable', (req, res) => {
     return
   }
   user.totpEnabled = true
+  const codes = makeRecoveryCodes(user.username)
+  user.recoveryHashes = codes.map((c) => recoveryHash(user.username, c))
   saveUser(user)
-  res.json({ ok: true })
+  res.json({ ok: true, recoveryCodes: codes })
 })
 
 app.post('/api/2fa/disable', (req, res) => {
@@ -242,12 +284,17 @@ app.post('/api/2fa/disable', (req, res) => {
     res.status(401).json({ error: '로그인이 필요합니다.' })
     return
   }
-  if (user.totpEnabled && user.totpSecret && !totpOk(user.totpSecret, String(req.body?.code || ''))) {
-    res.status(400).json({ error: '코드가 올바르지 않습니다.' })
-    return
+  const code = String(req.body?.code || '')
+  if (user.totpEnabled) {
+    const totpGood = !!(user.totpSecret && totpOk(user.totpSecret, code))
+    if (!totpGood && !consumeRecovery(user, code)) {
+      res.status(400).json({ error: '인증 앱 코드 또는 복구 코드가 올바르지 않습니다.' })
+      return
+    }
   }
   user.totpEnabled = false
   user.totpSecret = undefined
+  user.recoveryHashes = []
   saveUser(user)
   res.json({ ok: true })
 })
@@ -311,34 +358,6 @@ app.post('/api/devices/:id/wol', async (req, res) => {
 function PROTOCOL_VERSION_SAFE() {
   return 1
 }
-
-async function sendWol(mac: string) {
-  const parts = mac.split(/[:\-]/).map((x) => parseInt(x, 16))
-  if (parts.length !== 6 || parts.some((n) => Number.isNaN(n))) return { ok: false as const, error: 'bad mac' }
-  const dgram = await import('node:dgram')
-  const magic = Buffer.concat([Buffer.alloc(6, 0xff), ...Array(16).fill(Buffer.from(parts))])
-  await new Promise<void>((resolve, reject) => {
-    const sock = dgram.createSocket('udp4')
-    sock.bind(() => {
-      sock.setBroadcast(true)
-      sock.send(magic, 9, '255.255.255.255', (err) => {
-        sock.close()
-        if (err) reject(err)
-        else resolve()
-      })
-    })
-  })
-  return { ok: true as const }
-}
-
-app.get('/api/wol/:mac', async (req, res) => {
-  const r = await sendWol(req.params.mac)
-  if (!r.ok) {
-    res.status(400).json(r)
-    return
-  }
-  res.json(r)
-})
 
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist))

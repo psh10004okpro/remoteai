@@ -36,7 +36,7 @@ import { startTray } from './tray.js'
 import { notify } from './notify.js'
 import { startAudio, stopAudio } from './audio.js'
 import { sendMagic } from './wol.js'
-import { addIce, closeRtc, createOffer, sendRtc, setAnswer } from './webrtc.js'
+import { addIce, closeRtc, createOffer, fetchIce, sendRtc, setAnswer } from './webrtc.js'
 import { h264Running, startH264, stopH264 } from './h264.js'
 import { createReadStream } from 'node:fs'
 
@@ -55,7 +55,11 @@ let rtcOpen = false
 let ws: WebSocket | null = null
 let nextTransfer = 1
 let lastOneTime: { code: string; expiresAt: number } | null = null
-const silent = process.argv.includes('--silent')
+const silent = process.argv.includes('--silent') || process.argv.includes('--session')
+if (process.argv.includes('--service')) {
+  const { watchInteractiveSession } = await import('./session-launch.js')
+  await watchInteractiveSession()
+}
 
 function send(msg: Msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
@@ -105,7 +109,7 @@ startLocalApi({
         body: JSON.stringify({ username, password, totp }),
       })
       const body = (await r.json()) as { token?: string; username?: string; error?: string; totpRequired?: boolean }
-      if (body.totpRequired && !body.token) return { ok: false, totpRequired: true, error: body.error || '인증 앱 코드가 필요합니다.' }
+      if (body.totpRequired && !body.token) return { ok: false, totpRequired: true, error: body.error || '인증 앱 코드 또는 복구 코드가 필요합니다.' }
       if (!r.ok || !body.token) return { ok: false, error: body.error || '로그인 실패' }
       cfg = { ...cfg, accountUser: body.username, accountToken: body.token }
       saveConfig(cfg)
@@ -195,17 +199,22 @@ async function sendFileBatch(paths: string[], reason: string) {
       origin: 'host',
       batchId,
     })
-    await streamFile(id, f.full, batchId)
+    await streamFile(id, f.full, batchId, f.size)
   }
   send({ type: 'clipboard.files.complete', origin: 'host', batchId })
 }
 
-async function streamFile(transferId: number, filePath: string, batchId?: string) {
+async function streamFile(transferId: number, filePath: string, batchId?: string, size = 0) {
   const stream = createReadStream(filePath, { highWaterMark: FILE_CHUNK_SIZE })
   let seq = 0
+  let sent = 0
   for await (const chunk of stream) {
     const buf = chunk as Buffer
     sendBin(encodeFileChunk(transferId, seq++, false, buf))
+    sent += buf.length
+    if (size && (sent === size || seq % 4 === 0)) {
+      send({ type: 'file.progress', transferId, sent, total: size })
+    }
   }
   sendBin(encodeFileChunk(transferId, seq, true, new Uint8Array()))
   send({ type: 'file.end', transferId, savedPath: filePath, batchId, origin: 'host' })
@@ -243,11 +252,18 @@ async function handle(msg: Msg) {
         void captureLoop()
         notify('RemoteAI', '원격 접속이 시작되었습니다.')
         void (async () => {
+          const iceServers = await fetchIce(cfg.serverUrl)
           const sdp = await createOffer({
+            iceServers,
             onIce: (ice) => send({ type: 'webrtc.ice', ...ice }),
             onOpen: () => {
+              if (rtcOpen) return
               rtcOpen = true
-              startH264((b) => sendBin(b))
+              startH264(
+                (b) => sendBin(b),
+                (err) => send({ type: 'chat', from: 'system', text: err }),
+                quality.maxWidth,
+              )
             },
           })
           if (sdp) send({ type: 'webrtc.offer', sdp })
@@ -275,7 +291,16 @@ async function handle(msg: Msg) {
       if (!viewOnly) handleText(msg.text)
       break
     case 'input.special':
-      if (!viewOnly) handleSpecial(msg.key)
+      if (!viewOnly) {
+        if (msg.key === 'cad') {
+          send({
+            type: 'chat',
+            from: 'system',
+            text: 'Ctrl+Alt+Del은 Windows가 막을 수 있습니다. 안 되면 작업 관리자 버튼을 쓰세요.',
+          })
+        }
+        handleSpecial(msg.key)
+      }
       break
     case 'display.select':
       displayId = msg.displayId
@@ -297,8 +322,9 @@ async function handle(msg: Msg) {
       send({ type: 'pong', t: msg.t })
       break
     case 'audio.toggle':
-      if (msg.on) startAudio(sendBin)
-      else stopAudio()
+      if (msg.on) {
+        startAudio(sendBin, (err) => send({ type: 'chat', from: 'system', text: err }))
+      } else stopAudio()
       break
     case 'wol.request':
       if (msg.mac) sendMagic(msg.mac)

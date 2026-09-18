@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { BINARY } from '@remoteai/protocol'
+import { ffmpegBin } from './ffmpeg.js'
 import { log } from './log.js'
 
 let proc: ChildProcessWithoutNullStreams | null = null
@@ -12,10 +13,13 @@ export function encodeH264Frame(nal: Buffer, key: boolean) {
   return out
 }
 
-export function startH264(onFrame: (buf: Buffer) => void) {
+export function startH264(onFrame: (buf: Buffer) => void, onFail?: (err: string) => void, maxWidth = 1280) {
   stopH264()
+  const w = Math.max(640, Math.min(1920, Math.round(maxWidth) || 1280))
+  let sps: Buffer | null = null
+  let pps: Buffer | null = null
   const p = spawn(
-    'ffmpeg',
+    ffmpegBin(),
     [
       '-hide_banner',
       '-loglevel',
@@ -27,7 +31,7 @@ export function startH264(onFrame: (buf: Buffer) => void) {
       '-i',
       'desktop',
       '-vf',
-      'scale=1280:-2',
+      `scale=${w}:-2`,
       '-c:v',
       'libx264',
       '-preset',
@@ -57,12 +61,23 @@ export function startH264(onFrame: (buf: Buffer) => void) {
     acc = nals.rest
     for (const nal of nals.list) {
       const t = nal[0] & 0x1f
-      onFrame(encodeH264Frame(nal, t === 5 || t === 7 || t === 8))
+      if (t === 7) {
+        sps = Buffer.from(nal)
+        continue
+      }
+      if (t === 8) {
+        pps = Buffer.from(nal)
+        continue
+      }
+      const key = t === 5
+      const payload = key && sps && pps ? Buffer.concat([sps, Buffer.from([0, 0, 0, 1]), pps, Buffer.from([0, 0, 0, 1]), nal]) : nal
+      onFrame(encodeH264Frame(payload, key))
     }
   })
   p.on('error', (e) => {
     log('h264 ffmpeg missing', e)
     proc = null
+    onFail?.('H.264를 시작할 수 없어 JPEG로 보냅니다. 호스트 폴더에 ffmpeg.exe가 필요합니다.')
   })
   p.on('exit', () => {
     if (proc === p) proc = null

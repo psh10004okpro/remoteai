@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { cpSync, mkdirSync, rmSync, writeFileSync, existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -15,6 +15,8 @@ rmSync(out, { recursive: true, force: true })
 mkdirSync(path.join(out, 'app'), { recursive: true })
 cpSync(hostJs, path.join(out, 'app', 'index.js'))
 cpSync(process.execPath, path.join(out, 'node.exe'))
+copyFfmpeg(out)
+copyWinsw(out)
 
 const pkg = {
   name: 'remoteai-host-pack',
@@ -50,12 +52,31 @@ writeFileSync(
 )
 
 writeFileSync(
+  path.join(out, '설치-서비스.cmd'),
+  [
+    '@echo off',
+    'cd /d "%~dp0"',
+    'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Service',
+    '',
+  ].join('\r\n'),
+)
+
+writeFileSync(
   path.join(out, 'install.ps1'),
-  `$ErrorActionPreference = 'Stop'
+  `param([switch]$Service)
+$ErrorActionPreference = 'Stop'
+if ($Service) {
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $pr = New-Object Security.Principal.WindowsPrincipal $id
+  if (-not $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Service"
+    exit 0
+  }
+}
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dest = Join-Path $env:LOCALAPPDATA 'Programs\\RemoteAI'
+$dest = if ($Service) { Join-Path $env:ProgramFiles 'RemoteAI' } else { Join-Path $env:LOCALAPPDATA 'Programs\\RemoteAI' }
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Get-ChildItem $src -Force | Where-Object { $_.Name -notin @('install.ps1','설치.cmd') } | ForEach-Object {
+Get-ChildItem $src -Force | Where-Object { $_.Name -notin @('install.ps1','설치.cmd','설치-서비스.cmd') } | ForEach-Object {
   Copy-Item $_.FullName -Destination $dest -Recurse -Force
 }
 $cmd = Join-Path $dest 'RemoteAI.cmd'
@@ -71,8 +92,40 @@ $sc2 = $w.CreateShortcut($start)
 $sc2.TargetPath = $cmd
 $sc2.WorkingDirectory = $dest
 $sc2.Save()
-Start-Process $cmd
-Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'
+if ($Service) {
+  $exe = Join-Path $dest 'RemoteAI-service.exe'
+  if (-not (Test-Path $exe)) { throw 'RemoteAI-service.exe 가 없습니다. pack:host 를 다시 하세요.' }
+  $xml = @"
+<service>
+  <id>RemoteAIHost</id>
+  <name>RemoteAI Host</name>
+  <description>RemoteAI 호스트 (로그인 화면 포함)</description>
+  <executable>$dest\\node.exe</executable>
+  <arguments>"$dest\\app\\index.js" --service</arguments>
+  <workingdirectory>$dest</workingdirectory>
+  <stoptimeout>8sec</stoptimeout>
+  <onfailure action="restart" delay="4 sec"/>
+  <logpath>$dest</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>1048576</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+  <env name="REMOTEAI_PACKAGED" value="1"/>
+  <env name="REMOTEAI_HOME" value="$dest"/>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+</service>
+"@
+  $xmlPath = Join-Path $dest 'RemoteAI-service.xml'
+  Set-Content -Path $xmlPath -Value $xml -Encoding UTF8
+  & $exe uninstall 2>$null
+  & $exe install
+  Start-Service RemoteAIHost
+  Write-Host 'Windows 서비스로 설치했습니다. 부팅·로그인 화면부터 대기합니다.'
+} else {
+  Start-Process $cmd
+  Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'
+}
 Write-Host $dest
 `,
 )
@@ -81,9 +134,15 @@ writeFileSync(
   path.join(out, '제거.cmd'),
   [
     '@echo off',
+    'cd /d "%~dp0"',
+    'if exist "%ProgramFiles%\\RemoteAI\\RemoteAI-service.exe" (',
+    '  "%ProgramFiles%\\RemoteAI\\RemoteAI-service.exe" stop',
+    '  "%ProgramFiles%\\RemoteAI\\RemoteAI-service.exe" uninstall',
+    ')',
     'taskkill /IM node.exe /F >nul 2>&1',
     'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v RemoteAIHost /f >nul 2>&1',
     'rmdir /s /q "%LOCALAPPDATA%\\Programs\\RemoteAI"',
+    'rmdir /s /q "%ProgramFiles%\\RemoteAI"',
     'del /q "%USERPROFILE%\\Desktop\\RemoteAI.lnk" >nul 2>&1',
     'del /q "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\RemoteAI.lnk" >nul 2>&1',
     'echo 제거했습니다.',
@@ -108,7 +167,45 @@ writeFileSync(
   2) 원격 파일을 탐색기에 Ctrl+V 로 붙여넣을 수 있습니다.
 
 같은 아이디로 로그인하세요.
+H.264 화면과 소리는 이 폴더의 ffmpeg.exe 를 씁니다.
+
+잠금 화면·부팅 직후부터 열려면 "설치-서비스.cmd" 를 관리자로 실행하세요.
 `,
 )
+
+function copyWinsw(destDir) {
+  const dest = path.join(destDir, 'RemoteAI-service.exe')
+  const url = 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe'
+  console.log('WinSW 받기', url)
+  const r = spawnSync('curl', ['-fsSL', '-o', dest, url], { stdio: 'inherit' })
+  if (r.status !== 0 || !existsSync(dest)) {
+    console.warn('WinSW를 받지 못했습니다. 로그인 화면 서비스 설치는 빠집니다.')
+  }
+}
+
+function copyFfmpeg(destDir) {
+  const dest = path.join(destDir, 'ffmpeg.exe')
+  const found = spawnSync('where', ['ffmpeg'], { encoding: 'utf8', shell: true })
+  const first = String(found.stdout || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .find(Boolean)
+  if (!first) {
+    console.warn('ffmpeg.exe 없음 — 묶음에 넣지 않습니다. H.264/소리는 PATH의 ffmpeg가 있을 때만 됩니다.')
+    return
+  }
+  let src = first
+  try {
+    src = realpathSync(first)
+  } catch {
+    /* keep */
+  }
+  if (!existsSync(src)) {
+    console.warn('ffmpeg 경로를 열 수 없습니다', first)
+    return
+  }
+  console.log('ffmpeg 복사', src)
+  cpSync(src, dest)
+}
 
 console.log('packed', out)

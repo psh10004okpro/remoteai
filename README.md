@@ -16,6 +16,8 @@ npm run pack:host
 
 접속하는 Windows에도 같은 설치를 하면 그 PC도 호스트가 되고, 파일 Ctrl+V 가 됩니다.
 
+잠금·로그인 화면까지 열려면 **관리자**로 `설치-서비스.cmd` 를 실행합니다. Windows 서비스가 부팅 때부터 켜지고, 로그온 전 화면도 캡처합니다.
+
 ## 실행
 
 Node 20+ 가 필요합니다.
@@ -86,9 +88,12 @@ npm run start -w @remoteai/server
    - `DATA_DIR=/data`
    - `PUBLIC_URL=https://remote.example.com` (붙인 도메인)
    - `XAI_API_KEY` (AI 채팅을 쓸 때만)
+   - `TURN_URL` `TURN_USERNAME` `TURN_CREDENTIAL` (coturn을 같이 올릴 때. `turn/` 참고)
 6. **Persistent Storage**: Volume → Destination `/data` (회원가입·기기 목록이 재배포 후에도 남습니다).
 7. 배포 후 `https://도메인/api/health` 가 `{ "ok": true, "role": "account-hub" }` 인지 확인합니다.
 8. 각 Windows PC 호스트 설정에서 「이 컴퓨터가 계정 서버입니다」를 끄고, 계정 서버 주소에 `https://도메인` 을 저장한 다음 같은 아이디로 로그인합니다.
+
+밖 네트워크(LTE 등)에서 P2P를 쓰려면 같은 VPS에 coturn을 올립니다. `turn/docker-compose.yml` 을 Coolify Docker Compose 앱으로 배포하고, 허브에 `TURN_URL=turn:<공인IP>:3478` 과 같은 사용자/비밀번호를 넣습니다. UDP/TCP 3478 과 UDP 49160–49200 을 방화벽에서 엽니다.
 
 로컬에서 이미지 확인:
 

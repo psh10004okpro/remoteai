@@ -339,6 +339,19 @@ input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft);
   background: #2a2a2a;
   color: #eee;
 }
+.xfer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: #1a1a1a;
+  color: #bbb;
+  font-size: 12px;
+}
+.xfer .progress {
+  flex: 1;
+  margin: 0;
+}
 .progress {
   height: 6px;
   background: #333;

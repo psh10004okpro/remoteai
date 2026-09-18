@@ -22,6 +22,12 @@ import { clearPendingSession, getToken, takePendingSession } from '../lib/auth'
 
 type ChatItem = { from: string; text: string }
 
+function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function Session() {
   const [params] = useSearchParams()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -44,6 +50,7 @@ export default function Session() {
     new Map<number, { name: string; relativePath: string; chunks: Uint8Array[]; batchId?: string }>(),
   )
   const batches = useRef(new Map<string, number[]>())
+  const recvXfer = useRef({ sizes: new Map<number, number>(), sent: new Map<number, number>() })
   const transferId = useRef(1)
   const [quality, setQuality] = useState(55)
   const [autoQ, setAutoQ] = useState(true)
@@ -159,6 +166,21 @@ export default function Session() {
             setChat((c) => [...c, { from: 'system', text: '원격 텍스트를 클립보드에 넣었습니다.' }])
           }
           break
+        case 'file.progress': {
+          recvXfer.current.sent.set(msg.transferId, msg.sent)
+          if (msg.total && !recvXfer.current.sizes.has(msg.transferId)) {
+            recvXfer.current.sizes.set(msg.transferId, msg.total)
+          }
+          let sent = 0
+          let total = 0
+          for (const [id, t] of recvXfer.current.sizes) {
+            total += t
+            sent += recvXfer.current.sent.get(id) || 0
+          }
+          if (total) setProgress({ sent, total })
+          else setProgress({ sent: msg.sent, total: msg.total })
+          break
+        }
         case 'file.listResult':
           setFiles(msg.entries)
           setFilePath(msg.path)
@@ -171,6 +193,7 @@ export default function Session() {
               chunks: [],
               batchId: msg.batchId,
             })
+            if (msg.size) recvXfer.current.sizes.set(msg.transferId, msg.size)
             if (msg.batchId) {
               const ids = batches.current.get(msg.batchId) || []
               ids.push(msg.transferId)
@@ -182,6 +205,9 @@ export default function Session() {
           if (incoming.current.has(msg.transferId) && !incoming.current.get(msg.transferId)!.batchId) {
             const rec = incoming.current.get(msg.transferId)!
             incoming.current.delete(msg.transferId)
+            recvXfer.current.sizes.delete(msg.transferId)
+            recvXfer.current.sent.delete(msg.transferId)
+            setTimeout(() => setProgress(null), 800)
             finishReceive([{ name: rec.name, relativePath: rec.relativePath, data: concatChunks(rec.chunks) }])
           } else if (msg.savedPath && msg.origin !== 'host') {
             setChat((c) => [...c, { from: 'system', text: `원격 저장: ${msg.savedPath}` }])
@@ -201,11 +227,18 @@ export default function Session() {
               .map((id) => incoming.current.get(id))
               .filter((x): x is NonNullable<typeof x> => !!x)
             for (const id of ids) incoming.current.delete(id)
+            recvXfer.current.sizes.clear()
+            recvXfer.current.sent.clear()
+            setTimeout(() => setProgress(null), 800)
             finishReceive(recs.map((r) => ({ name: r.name, relativePath: r.relativePath, data: concatChunks(r.chunks) })))
           }
           break
         case 'chat':
           setChat((c) => [...c, { from: msg.from, text: msg.text }])
+          if (msg.from === 'system') {
+            setToast(msg.text)
+            window.setTimeout(() => setToast(''), 4500)
+          }
           break
         case 'ai.assistant':
           setChat((c) => [...c, { from: 'ai', text: msg.text }])
@@ -266,7 +299,18 @@ export default function Session() {
   async function applyOffer(sdp: string) {
     try {
       rtcRef.current?.close()
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      let iceServers: RTCIceServer[] = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+      ]
+      try {
+        const ice = await fetch('/api/ice').then((r) => r.json())
+        if (ice.iceServers?.length) iceServers = ice.iceServers
+      } catch {
+        /* keep stun */
+      }
+      const pc = new RTCPeerConnection({ iceServers })
       rtcRef.current = pc
       pc.ondatachannel = (ev) => {
         ev.channel.binaryType = 'arraybuffer'
@@ -464,6 +508,8 @@ export default function Session() {
   async function sendFiles(list: File[], relative: string[] = []) {
     if (!list.length) return
     const batchId = `${Date.now()}-${transferId.current}`
+    const grand = list.reduce((n, f) => n + f.size, 0) || 1
+    let done = 0
     send({
       type: 'clipboard.files.offer',
       origin: 'viewer',
@@ -480,12 +526,17 @@ export default function Session() {
       for (let off = 0; off < buf.length; off += FILE_CHUNK_SIZE) {
         const slice = buf.subarray(off, off + FILE_CHUNK_SIZE)
         sendBin(encodeFileChunk(id, seq++, off + FILE_CHUNK_SIZE >= buf.length, slice))
+        done += slice.length
+        if (seq % 4 === 0 || off + FILE_CHUNK_SIZE >= buf.length) {
+          send({ type: 'file.progress', transferId: id, sent: off + slice.length, total: buf.length || 1 })
+          setProgress({ sent: done, total: grand })
+        }
       }
       if (buf.length === 0) sendBin(encodeFileChunk(id, 0, true, new Uint8Array()))
       send({ type: 'file.end', transferId: id, origin: 'viewer', batchId })
-      setProgress({ sent: i + 1, total: list.length })
     }
     send({ type: 'clipboard.files.complete', origin: 'viewer', batchId })
+    setProgress({ sent: grand, total: grand })
     setTimeout(() => setProgress(null), 800)
   }
 
@@ -588,8 +639,8 @@ export default function Session() {
   function startRec() {
     const c = canvasRef.current
     if (!c) return
-    const stream = c.captureStream(10)
-    const rec = new MediaRecorder(stream, { mimeType: 'video/webm' })
+    const stream = c.captureStream(20)
+    const rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8', videoBitsPerSecond: 4_000_000 })
     recChunks.current = []
     rec.ondataavailable = (e) => {
       if (e.data.size) recChunks.current.push(e.data)
@@ -608,7 +659,7 @@ export default function Session() {
         <Link to="/" style={{ color: '#ccc', fontSize: 13 }}>
           나가기
         </Link>
-        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}{rtcOn ? ' · P2P' : ''}</span>
+        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}{rtcOn ? ' · P2P' : ''}{recording ? ' · 녹화' : ''}</span>
         {displays.length > 1 && (
           <select
             value={displayId}
@@ -679,6 +730,12 @@ export default function Session() {
           )}
         </div>
       </div>
+      {progress && progress.total > 0 && (
+        <div className="xfer">
+          <div className="progress"><span style={{ width: `${Math.min(100, Math.round((progress.sent / progress.total) * 100))}%` }} /></div>
+          <span>{fmtBytes(progress.sent)} / {fmtBytes(progress.total)}</span>
+        </div>
+      )}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div
           className="stage"
@@ -795,7 +852,10 @@ export default function Session() {
                     </button>
                   ))}
                   {progress && (
-                    <div className="progress"><span style={{ width: `${Math.round((progress.sent / progress.total) * 100)}%` }} /></div>
+                    <>
+                      <div className="progress"><span style={{ width: `${Math.min(100, Math.round((progress.sent / progress.total) * 100))}%` }} /></div>
+                      <p className="hint">{fmtBytes(progress.sent)} / {fmtBytes(progress.total)}</p>
+                    </>
                   )}
                   <label className="btn ghost" style={{ display: 'inline-block', marginTop: 8 }}>
                     업로드

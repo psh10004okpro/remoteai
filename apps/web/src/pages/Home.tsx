@@ -38,6 +38,8 @@ export default function Home() {
   const [code, setCode] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [flash, setFlash] = useState('')
+  const [flashBad, setFlashBad] = useState(false)
 
   async function refresh() {
     const loc = await fetchLocalHost()
@@ -113,6 +115,7 @@ export default function Home() {
         </div>
         <nav className="nav">
           <Link to="/host">이 컴퓨터</Link>
+          <Link to="/features">기능</Link>
           {user && (
             <button
               className="btn ghost"
@@ -147,8 +150,8 @@ export default function Home() {
             />
             {needTotp && (
               <>
-                <label>인증 앱 코드</label>
-                <input value={totp} onChange={(e) => setTotp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" />
+                <label>인증 앱 코드 또는 복구 코드</label>
+                <input value={totp} onChange={(e) => setTotp(e.target.value)} autoComplete="one-time-code" />
               </>
             )}
             {err && <p className="hint" style={{ color: 'var(--danger)' }}>{err}</p>}
@@ -188,6 +191,7 @@ export default function Home() {
               <div>
                 <h2 style={{ margin: '0 0 4px' }}>{user}의 컴퓨터</h2>
                 <p className="hint">온라인인 기기를 누르면 들어갑니다.</p>
+                {flash && <p className="hint" style={{ color: flashBad ? 'var(--danger)' : undefined }}>{flash}</p>}
                 {devices.length === 0 && (
                   <div className="card" style={{ marginTop: 12 }}>
                     <p className="hint">아직 등록된 컴퓨터가 없습니다. 이 PC에서 호스트를 실행하고 같은 아이디로 연결하세요.</p>
@@ -227,9 +231,13 @@ export default function Home() {
                         type="button"
                         onClick={async () => {
                           try {
-                            await wakeDevice(d.id)
+                            const r = await wakeDevice(d.id)
+                            const via = r.via === 'local' ? '이 컴퓨터' : r.via
+                            setFlashBad(false)
+                            setFlash(`${d.name}에 켜기 신호를 보냈습니다${via ? ` (${via})` : ''}`)
                           } catch (e) {
-                            setErr(e instanceof Error ? e.message : String(e))
+                            setFlashBad(true)
+                            setFlash(e instanceof Error ? e.message : String(e))
                           }
                         }}
                       >
@@ -285,29 +293,58 @@ export default function Home() {
 function TwoFactor() {
   const [on, setOn] = useState(false)
   const [secret, setSecret] = useState('')
-  const [otpauthUrl, setOtpauth] = useState('')
+  const [qr, setQr] = useState('')
   const [code, setCode] = useState('')
   const [msg, setMsg] = useState('')
+  const [recovery, setRecovery] = useState<string[]>([])
   useEffect(() => {
     api<{ totpEnabled?: boolean }>('/api/me')
       .then((r) => setOn(!!r.totpEnabled))
       .catch(() => undefined)
   }, [])
+
+  async function makeQr(otpauthUrl: string) {
+    try {
+      const mod = await import('qrcode')
+      const QRCode = mod.default
+      setQr(await QRCode.toDataURL(otpauthUrl, { width: 180, margin: 1, errorCorrectionLevel: 'M' }))
+    } catch {
+      setQr('')
+      setMsg('QR을 만들지 못했습니다. 아래 시크릿을 인증 앱에 직접 넣으세요.')
+    }
+  }
+
+  function saveRecovery(codes: string[]) {
+    const blob = new Blob([`RemoteAI 복구 코드\n${codes.join('\n')}\n`], { type: 'text/plain;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'remoteai-recovery.txt'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
-    <details className="adv" style={{ marginBottom: 12 }}>
+    <details className="adv" style={{ marginBottom: 12 }} {...(recovery.length ? { open: true } : {})}>
       <summary>2단계 인증</summary>
       {on ? (
         <>
-          <p className="hint">켜져 있습니다. 로그인 때 인증 앱 코드가 필요합니다.</p>
-          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="끌 때 앱 코드" />
+          <p className="hint">켜져 있습니다. 로그인 때 인증 앱 코드 또는 복구 코드가 필요합니다.</p>
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="끌 때 앱 코드 또는 복구 코드" />
           <button
             className="btn ghost"
             type="button"
             onClick={async () => {
-              await api('/api/2fa/disable', { method: 'POST', body: JSON.stringify({ code }) })
-              setOn(false)
-              setSecret('')
-              setMsg('2단계 인증을 껐습니다.')
+              try {
+                await api('/api/2fa/disable', { method: 'POST', body: JSON.stringify({ code }) })
+                setOn(false)
+                setSecret('')
+                setQr('')
+                setRecovery([])
+                setCode('')
+                setMsg('2단계 인증을 껐습니다.')
+              } catch (e) {
+                setMsg(e instanceof Error ? e.message : String(e))
+              }
             }}
           >
             끄기
@@ -319,42 +356,67 @@ function TwoFactor() {
             className="btn ghost"
             type="button"
             onClick={async () => {
-              const r = await api<{ secret: string; otpauth: string }>('/api/2fa/setup', { method: 'POST' })
-              setSecret(r.secret)
-              setOtpauth(r.otpauth)
-              setMsg('QR을 찍거나 시크릿을 인증 앱에 넣은 뒤 코드를 입력하세요.')
+              try {
+                const r = await api<{ secret: string; otpauth: string }>('/api/2fa/setup', { method: 'POST' })
+                setSecret(r.secret)
+                setRecovery([])
+                setMsg('QR을 찍거나 시크릿을 인증 앱에 넣은 뒤 코드를 입력하세요.')
+                await makeQr(r.otpauth)
+              } catch (e) {
+                setMsg(e instanceof Error ? e.message : String(e))
+              }
             }}
           >
             설정 시작
           </button>
           {secret && (
             <>
-              {otpauthUrl && (
-                <img
-                  alt="2FA QR"
-                  width={180}
-                  height={180}
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauthUrl)}`}
-                />
-              )}
+              {qr && <img alt="2FA QR" width={180} height={180} src={qr} />}
               <p className="hint" style={{ wordBreak: 'break-all' }}>{secret}</p>
-              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6자리" />
+              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6자리" autoComplete="one-time-code" />
               <button
                 className="btn"
                 type="button"
                 onClick={async () => {
-                  await api('/api/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) })
-                  setOn(true)
-                  setMsg('2단계 인증이 켜졌습니다.')
+                  try {
+                    const r = await api<{ ok: boolean; recoveryCodes: string[] }>('/api/2fa/enable', {
+                      method: 'POST',
+                      body: JSON.stringify({ code }),
+                    })
+                    setOn(true)
+                    setCode('')
+                    setRecovery(r.recoveryCodes || [])
+                    setMsg('2단계 인증이 켜졌습니다. 복구 코드를 안전한 곳에 저장하세요. 다시 보여 주지 않습니다.')
+                  } catch (e) {
+                    setMsg(e instanceof Error ? e.message : String(e))
+                  }
                 }}
               >
                 사용
               </button>
             </>
           )}
-          {msg && <p className="hint">{msg}</p>}
         </>
       )}
+      {recovery.length > 0 && (
+        <div className="card" style={{ marginTop: 12, padding: 12 }}>
+          <p className="hint">각 코드는 한 번만 쓸 수 있습니다.</p>
+          <pre style={{ margin: '8px 0', fontSize: 13, lineHeight: 1.6 }}>{recovery.join('\n')}</pre>
+          <div className="row">
+            <button
+              className="btn ghost"
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(recovery.join('\n'))}
+            >
+              복사
+            </button>
+            <button className="btn ghost" type="button" onClick={() => saveRecovery(recovery)}>
+              파일로 저장
+            </button>
+          </div>
+        </div>
+      )}
+      {msg && <p className="hint">{msg}</p>}
     </details>
   )
 }

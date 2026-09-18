@@ -19,6 +19,7 @@ export type UserRecord = {
   sessions: { tokenHash: string; created: number }[]
   totpSecret?: string
   totpEnabled?: boolean
+  recoveryHashes?: string[]
 }
 
 const dataDir = process.env.DATA_DIR
@@ -139,6 +140,41 @@ export function getUserRecord(username: string) {
 export function saveUser(rec: UserRecord) {
   users.set(rec.username.toLowerCase(), rec)
   void saveUsers()
+}
+
+export function makeRecoveryCodes(username: string) {
+  const codes: string[] = []
+  for (let i = 0; i < 8; i++) {
+    const raw = newToken().replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase()
+    codes.push(`${raw.slice(0, 4)}-${raw.slice(4, 8)}`)
+  }
+  return codes
+}
+
+export function recoveryHash(username: string, code: string) {
+  const norm = code.replace(/[\s-]/g, '').toLowerCase()
+  return hashSecret(norm, `rec:${username.toLowerCase()}`)
+}
+
+export function consumeRecovery(rec: UserRecord, code: string) {
+  const h = recoveryHash(rec.username, code)
+  const list = rec.recoveryHashes || []
+  let found = -1
+  for (let i = 0; i < list.length; i++) {
+    try {
+      if (sameHash(list[i], h)) {
+        found = i
+        break
+      }
+    } catch {
+      /* length mismatch */
+    }
+  }
+  if (found < 0) return false
+  list.splice(found, 1)
+  rec.recoveryHashes = list
+  saveUser(rec)
+  return true
 }
 
 export function renameDevice(id: string, username: string, name: string) {

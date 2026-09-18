@@ -78,5 +78,26 @@ export async function renameDevice(id: string, name: string) {
 }
 
 export async function wakeDevice(id: string) {
-  return api<{ ok: boolean }>(`/api/devices/${id}/wol`, { method: 'POST' })
+  const { fetchLocalHost, localHostUrl } = await import('./ws')
+  const local = await fetchLocalHost()
+  let localOk = false
+  if (local) {
+    const list = await fetchDevices()
+    const d = list.devices.find((x) => x.id === id)
+    if (d?.mac) {
+      const r = await fetch(localHostUrl() + '/wol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac: d.mac }),
+      }).catch(() => null)
+      if (r?.ok) localOk = true
+    }
+  }
+  try {
+    const hub = await api<{ ok: boolean; via?: string }>(`/api/devices/${id}/wol`, { method: 'POST' })
+    return { ok: true as const, via: hub.via || (localOk ? 'local' : undefined) }
+  } catch (e) {
+    if (localOk) return { ok: true as const, via: 'local' }
+    throw e
+  }
 }

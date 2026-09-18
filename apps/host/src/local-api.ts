@@ -6,6 +6,7 @@ import { HOST_LOCAL_PORT } from '@remoteai/protocol'
 import type { HostConfig } from './config.js'
 import { isLocalHub, lanUrls } from './net.js'
 import { setClipboardFiles } from './clipboard.js'
+import { sendMagic } from './wol.js'
 import { log } from './log.js'
 
 export type LocalState = {
@@ -104,6 +105,18 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         log('clip-file', e)
         res.writeHead(500)
         res.end('write failed')
+      })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/wol') {
+      readBody(req).then((body) => {
+        const mac = String((body as { mac?: string }).mac || '')
+        if (!mac) {
+          json(res, { ok: false, error: 'mac required' })
+          return
+        }
+        sendMagic(mac)
+        json(res, { ok: true, via: 'local' })
       })
       return
     }

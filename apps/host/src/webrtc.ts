@@ -9,15 +9,31 @@ let pc: {
 } | null = null
 let channel: { readyState: string; send(data: Buffer | Uint8Array): void } | null = null
 
+export async function fetchIce(serverUrl: string) {
+  try {
+    const r = await fetch(serverUrl.replace(/\/$/, '') + '/api/ice')
+    const j = (await r.json()) as { iceServers?: { urls: string; username?: string; credential?: string }[] }
+    if (j.iceServers?.length) return j.iceServers
+  } catch {
+    /* ignore */
+  }
+  return [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ]
+}
+
 export async function createOffer(opts: {
   onIce: (ice: Ice) => void
   onOpen: () => void
+  iceServers?: { urls: string; username?: string; credential?: string }[]
 }): Promise<string | null> {
   await closeRtc()
   try {
     const { RTCPeerConnection } = await import('werift')
     const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: opts.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }],
     })
     const dc = peer.createDataChannel('media', { ordered: false, maxRetransmits: 0 })
     pc = peer

@@ -9,6 +9,9 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
       XAI_MODEL: ${XAI_MODEL:-grok-4.6}
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
     volumes:
       - remoteai-data:/data
     ports:

@@ -49,6 +49,7 @@ export default function Host() {
         </div>
         <nav className="nav">
           <Link to="/">접속</Link>
+          <Link to="/features">기능</Link>
         </nav>
       </div>
       {err && <p className="hint">{err}</p>}
@@ -120,8 +121,8 @@ export default function Host() {
           <input type="password" value={accPass} onChange={(e) => setAccPass(e.target.value)} />
           {needTotp && (
             <>
-              <label>인증 앱 코드</label>
-              <input value={accTotp} onChange={(e) => setAccTotp(e.target.value)} inputMode="numeric" />
+              <label>인증 앱 코드 또는 복구 코드</label>
+              <input value={accTotp} onChange={(e) => setAccTotp(e.target.value)} autoComplete="one-time-code" />
             </>
           )}
           <div className="row" style={{ marginTop: 12 }}>
@@ -137,7 +138,7 @@ export default function Host() {
                 const body = await r.json()
                 if (body.totpRequired && !body.ok) {
                   setNeedTotp(true)
-                  setErr(body.error || '인증 앱 코드를 입력하세요.')
+                  setErr(body.error || '인증 앱 코드 또는 복구 코드를 입력하세요.')
                 } else if (!body.ok) setErr(body.error || '로그인 실패')
                 else {
                   setErr('')
