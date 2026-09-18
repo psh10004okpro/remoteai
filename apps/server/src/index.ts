@@ -63,6 +63,40 @@ type Room = {
 const rooms = new Map<string, Room>()
 const PORT = Number(process.env.PORT || DEFAULT_PORT)
 const webDist = path.resolve(here, '../../web/dist')
+const setupCache = path.join(
+  process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(here, '../data'),
+  'RemoteAI-Setup.exe',
+)
+
+async function ensureSetupCached() {
+  try {
+    if (fs.existsSync(setupCache) && fs.statSync(setupCache).size > 1_000_000) return
+  } catch {
+    /* fetch */
+  }
+  const token = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
+  const repo = (process.env.GITHUB_REPO || 'psh10004okpro/remoteai').replace(/^\/+|\/+$/g, '')
+  if (!token) throw new Error('no github token')
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'User-Agent': 'remoteai-hub',
+    Accept: 'application/vnd.github+json',
+  }
+  const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers })
+  if (!rel.ok) throw new Error('release ' + rel.status)
+  const body = (await rel.json()) as { assets?: { name: string; url: string }[] }
+  const asset = body.assets?.find((a) => a.name === 'RemoteAI-Setup.exe')
+  if (!asset?.url) throw new Error('no setup asset')
+  const bin = await fetch(asset.url, {
+    headers: { ...headers, Accept: 'application/octet-stream' },
+    redirect: 'follow',
+  })
+  if (!bin.ok) throw new Error('asset ' + bin.status)
+  await fs.promises.mkdir(path.dirname(setupCache), { recursive: true })
+  const tmp = setupCache + '.part'
+  await fs.promises.writeFile(tmp, Buffer.from(await bin.arrayBuffer()))
+  fs.renameSync(tmp, setupCache)
+}
 
 function publicBase() {
   const raw = (process.env.PUBLIC_URL || process.env.COOLIFY_URL || '').trim()
@@ -359,10 +393,23 @@ function PROTOCOL_VERSION_SAFE() {
   return 1
 }
 
+app.get('/RemoteAI-Setup.exe', async (_req, res) => {
+  try {
+    await ensureSetupCached()
+    const st = fs.statSync(setupCache)
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Content-Disposition', 'attachment; filename="RemoteAI-Setup.exe"')
+    res.setHeader('Content-Length', String(st.size))
+    fs.createReadStream(setupCache).pipe(res)
+  } catch (e) {
+    res.status(404).type('text/plain').send('설치 파일을 아직 준비하지 못했습니다.')
+  }
+})
+
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist))
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next()
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path === '/RemoteAI-Setup.exe') return next()
     res.sendFile(path.join(webDist, 'index.html'))
   })
 }

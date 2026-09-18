@@ -1,7 +1,6 @@
 import { HOST_LOCAL_PORT } from '@remoteai/protocol'
 
-export const HOST_SETUP_URL =
-  'https://github.com/psh10004okpro/remoteai/releases/latest/download/RemoteAI-Setup.exe'
+export const HOST_SETUP_URL = '/RemoteAI-Setup.exe'
 
 export function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
