@@ -1,8 +1,9 @@
 import sharp from 'sharp'
 import { encodeJpegFrame } from '@remoteai/protocol'
 import type { DisplayInfo, QualitySettings } from '@remoteai/protocol'
-import { captureGdiBgra, cursorPos, listDisplaysWin } from './win32.js'
 import { log } from './log.js'
+
+const win = process.platform === 'win32' ? await import('./win32.js') : null
 
 let screenshots: typeof import('node-screenshots') | null = null
 try {
@@ -24,11 +25,11 @@ export function listDisplays(): DisplayInfo[] {
       scaleFactor: m.scaleFactor(),
     }))
   }
-  return listDisplaysWin()
+  return win?.listDisplaysWin() || []
 }
 
 function drawCursor(rgba: Buffer, width: number, height: number, originX: number, originY: number) {
-  const pt = cursorPos()
+  const pt = win?.cursorPos() || { x: -1, y: -1 }
   const cx = Math.round(pt.x - originX)
   const cy = Math.round(pt.y - originY)
   if (cx < 0 || cy < 0 || cx >= width || cy >= height) return
@@ -82,7 +83,7 @@ export async function captureFrame(displayId: number, quality: QualitySettings) 
     }
   }
 
-  const bgra = captureGdiBgra(d.x, d.y, d.width, d.height)
+  const bgra = win?.captureGdiBgra(d.x, d.y, d.width, d.height)
   if (!bgra) return null
   const rgba = Buffer.alloc(bgra.length)
   for (let i = 0; i < bgra.length; i += 4) {

@@ -15,6 +15,7 @@
     "hub": "npm run dev -w @remoteai/server",
     "pack:host": "npm run build -w @remoteai/host && node scripts/pack-host.mjs",
     "pack:setup": "npm run pack:host && node scripts/pack-setup.mjs",
+    "pack:host:mac": "npm run build -w @remoteai/host && node scripts/pack-host-mac.mjs",
     "test": "npm run test -w @remoteai/server"
   },
   "devDependencies": {

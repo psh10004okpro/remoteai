@@ -4,6 +4,10 @@ import { log } from './log.js'
 let proc: ChildProcess | null = null
 
 export function setBlankScreen(on: boolean) {
+  if (process.platform === 'darwin') {
+    log('blank screen skipped on macOS')
+    return
+  }
   if (!on) {
     proc?.kill()
     proc = null

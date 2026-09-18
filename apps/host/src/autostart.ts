@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { configDir, isPackaged, loadConfig } from './config.js'
 import { isLocalHub } from './net.js'
 import { log } from './log.js'
+import * as macAuto from './mac-autostart.js'
 
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 const VALUE = 'RemoteAIHost'
@@ -26,6 +27,7 @@ function tsxCli() {
 }
 
 export function writeRuntimeCmd() {
+  if (process.platform === 'darwin') return macAuto.writeRuntimeCmd()
   const starter = path.join(configDir(), 'start-host.cmd')
   if (isPackaged()) {
     const home = (process.env.REMOTEAI_HOME || path.dirname(process.execPath)).replace(/\\$/, '')
@@ -74,6 +76,10 @@ export function writeRuntimeCmd() {
 }
 
 export function setAutoStart(on: boolean) {
+  if (process.platform === 'darwin') {
+    macAuto.setAutoStart(on)
+    return
+  }
   const starter = writeRuntimeCmd()
   if (on) {
     const r = spawnSync('reg', ['add', RUN_KEY, '/v', VALUE, '/t', 'REG_SZ', '/d', starter, '/f'], { windowsHide: true })
@@ -99,6 +105,7 @@ export function setAutoStart(on: boolean) {
 }
 
 export function isAutoStart(): boolean {
+  if (process.platform === 'darwin') return macAuto.isAutoStart()
   const r = spawnSync('reg', ['query', RUN_KEY, '/v', VALUE], { windowsHide: true, encoding: 'utf8' })
   const t = spawnSync('schtasks', ['/Query', '/TN', TASK_LOGON], { windowsHide: true, encoding: 'utf8' })
   return r.status === 0 || t.status === 0

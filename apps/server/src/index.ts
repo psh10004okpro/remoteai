@@ -63,14 +63,12 @@ type Room = {
 const rooms = new Map<string, Room>()
 const PORT = Number(process.env.PORT || DEFAULT_PORT)
 const webDist = path.resolve(here, '../../web/dist')
-const setupCache = path.join(
-  process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(here, '../data'),
-  'RemoteAI-Setup.exe',
-)
+const dataRoot = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(here, '../data')
 
-async function ensureSetupCached() {
+async function ensureReleaseAsset(name: string) {
+  const cache = path.join(dataRoot, name)
   try {
-    if (fs.existsSync(setupCache) && fs.statSync(setupCache).size > 1_000_000) return
+    if (fs.existsSync(cache) && fs.statSync(cache).size > 1_000_000) return cache
   } catch {
     /* fetch */
   }
@@ -85,17 +83,18 @@ async function ensureSetupCached() {
   const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers })
   if (!rel.ok) throw new Error('release ' + rel.status)
   const body = (await rel.json()) as { assets?: { name: string; url: string }[] }
-  const asset = body.assets?.find((a) => a.name === 'RemoteAI-Setup.exe')
-  if (!asset?.url) throw new Error('no setup asset')
+  const asset = body.assets?.find((a) => a.name === name)
+  if (!asset?.url) throw new Error('no asset ' + name)
   const bin = await fetch(asset.url, {
     headers: { ...headers, Accept: 'application/octet-stream' },
     redirect: 'follow',
   })
   if (!bin.ok) throw new Error('asset ' + bin.status)
-  await fs.promises.mkdir(path.dirname(setupCache), { recursive: true })
-  const tmp = setupCache + '.part'
+  await fs.promises.mkdir(path.dirname(cache), { recursive: true })
+  const tmp = cache + '.part'
   await fs.promises.writeFile(tmp, Buffer.from(await bin.arrayBuffer()))
-  fs.renameSync(tmp, setupCache)
+  fs.renameSync(tmp, cache)
+  return cache
 }
 
 function publicBase() {
@@ -393,23 +392,30 @@ function PROTOCOL_VERSION_SAFE() {
   return 1
 }
 
-app.get('/RemoteAI-Setup.exe', async (_req, res) => {
+async function sendAsset(res: express.Response, name: string) {
   try {
-    await ensureSetupCached()
-    const st = fs.statSync(setupCache)
+    const cache = await ensureReleaseAsset(name)
+    const st = fs.statSync(cache)
     res.setHeader('Content-Type', 'application/octet-stream')
-    res.setHeader('Content-Disposition', 'attachment; filename="RemoteAI-Setup.exe"')
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
     res.setHeader('Content-Length', String(st.size))
-    fs.createReadStream(setupCache).pipe(res)
-  } catch (e) {
+    fs.createReadStream(cache).pipe(res)
+  } catch {
     res.status(404).type('text/plain').send('설치 파일을 아직 준비하지 못했습니다.')
   }
+}
+
+app.get('/RemoteAI-Setup.exe', (_req, res) => {
+  void sendAsset(res, 'RemoteAI-Setup.exe')
+})
+app.get('/RemoteAI-Mac.zip', (_req, res) => {
+  void sendAsset(res, 'RemoteAI-Mac.zip')
 })
 
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist))
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path === '/RemoteAI-Setup.exe') return next()
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path === '/RemoteAI-Setup.exe' || req.path === '/RemoteAI-Mac.zip') return next()
     res.sendFile(path.join(webDist, 'index.html'))
   })
 }

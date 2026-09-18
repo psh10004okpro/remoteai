@@ -18,6 +18,8 @@ npm run pack:setup
 
 접속하는 Windows에도 같은 설치를 하면 그 PC도 목록에 오르고, 파일 Ctrl+V 가 됩니다.
 
+맥을 원격으로 열려면 맥에서 `npm run pack:host:mac` 이거나 GitHub Actions가 만든 `RemoteAI-Mac.zip` 을 받아 `설치.command` 를 실행합니다. 시스템 설정에서 화면 기록·손쉬운 사용을 허용해야 합니다. 맥 로그인 화면은 열리지 않습니다.
+
 ## 실행
 
 Node 20+ 가 필요합니다.

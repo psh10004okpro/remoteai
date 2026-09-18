@@ -6,7 +6,6 @@ import os from 'node:os'
 import { captureJpegBase64 } from './capture.js'
 import { DEFAULT_QUALITY } from '@remoteai/protocol'
 import { handleMouse, handleText, chord } from './input.js'
-import { listWindowTitles } from './win32.js'
 import { getClipboard, setClipboardText } from './clipboard.js'
 
 const execp = promisify(exec)
@@ -41,19 +40,25 @@ export async function runTool(
         return { ok: true, text: `pressed ${combo}` }
       }
       case 'run': {
-        const { stdout, stderr } = await execp(`powershell -NoProfile -Command ${escapePs(String(args.command || ''))}`, {
+        const cmd = String(args.command || '')
+        const line = process.platform === 'darwin' ? cmd : `powershell -NoProfile -Command ${escapePs(cmd)}`
+        const { stdout, stderr } = await execp(line, {
           cwd: os.homedir(),
           windowsHide: true,
           timeout: 30_000,
           encoding: 'utf8',
           maxBuffer: 1024 * 1024,
+          shell: process.platform === 'darwin' ? '/bin/zsh' : true,
         })
         return { ok: true, text: (stdout + stderr).slice(0, 8000) || '(no output)' }
       }
       case 'open_path': {
-        await execp(`powershell -NoProfile -Command Start-Process ${escapePs(String(args.target || ''))}`, {
-          windowsHide: true,
-        })
+        const target = String(args.target || '')
+        const line =
+          process.platform === 'darwin'
+            ? `open ${JSON.stringify(target)}`
+            : `powershell -NoProfile -Command Start-Process ${escapePs(target)}`
+        await execp(line, { windowsHide: true })
         return { ok: true, text: 'opened' }
       }
       case 'list_dir': {
@@ -66,8 +71,20 @@ export async function runTool(
         }
         return { ok: true, text: lines.join('\n') }
       }
-      case 'list_windows':
+      case 'list_windows': {
+        if (process.platform === 'darwin') {
+          try {
+            const { stdout } = await execp(
+              `osascript -e 'tell application "System Events" to get name of every process whose background only is false'`,
+            )
+            return { ok: true, text: stdout }
+          } catch {
+            return { ok: true, text: '' }
+          }
+        }
+        const { listWindowTitles } = await import('./win32.js')
         return { ok: true, text: listWindowTitles().join('\n') }
+      }
       case 'clipboard_get': {
         const c = getClipboard()
         return { ok: true, text: c.files.length ? c.files.join('\n') : c.text || '' }

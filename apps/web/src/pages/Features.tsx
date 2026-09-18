@@ -23,7 +23,7 @@ const rows = [
   ['프라이버시 블랙 스크린', 'TeamViewer', '포함'],
   ['연결 해제 시 잠금', 'ToDesk, AnyDesk', '옵션'],
   ['WOL', 'TeamViewer', '이 PC 호스트가 먼저 매직패킷. 없으면 같은 계정의 다른 켜진 PC가 보냄'],
-  ['호스트 설치 묶음', 'CRD 호스트, AnyDesk', '웹에서 Setup.exe. 로그인 화면은 설치 시 서비스 옵션'],
+  ['호스트 설치 묶음', 'CRD 호스트, AnyDesk', 'Windows Setup.exe · Mac zip. 맥 로그인 화면은 없음'],
 ]
 
 export default function Features() {

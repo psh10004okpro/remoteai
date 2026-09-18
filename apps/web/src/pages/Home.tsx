@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { fetchLocalHost, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
 import {
   api,
   clearSession,
@@ -156,9 +156,10 @@ export default function Home() {
             )}
             {err && <p className="hint" style={{ color: 'var(--danger)' }}>{err}</p>}
             <p className="hint" style={{ marginTop: 12 }}>
-              이 Windows를 원격으로 열려면{' '}
-              <a href={HOST_SETUP_URL}>설치 파일</a>
-              을 받아 실행하세요. 폰·다른 PC에서 접속만 하면 설치는 필요 없습니다.
+              이 컴퓨터를 원격으로 열려면 설치 파일을 받으세요. 접속만 하면 설치는 필요 없습니다.{' '}
+              <a href={HOST_SETUP_URL}>Windows</a>
+              {' · '}
+              <a href={HOST_SETUP_MAC_URL}>Mac</a>
             </p>
             <div className="row" style={{ marginTop: 16 }}>
               <button className="btn" type="submit">
@@ -268,8 +269,11 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <p className="hint">이 PC를 원격으로 열려면 Windows 설치 파일을 받아 실행하세요. 접속만 하면 설치는 필요 없습니다.</p>
-                    <a className="btn" href={HOST_SETUP_URL}>설치 파일 받기</a>
+                    <p className="hint">이 컴퓨터를 원격으로 열려면 설치 파일을 받으세요. 접속만 하면 설치는 필요 없습니다.</p>
+                    <div className="row">
+                      <a className="btn" href={HOST_SETUP_URL}>Windows 설치</a>
+                      <a className="btn ghost" href={HOST_SETUP_MAC_URL}>Mac 설치</a>
+                    </div>
                   </>
                 )}
               </div>

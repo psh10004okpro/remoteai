@@ -56,7 +56,7 @@ let ws: WebSocket | null = null
 let nextTransfer = 1
 let lastOneTime: { code: string; expiresAt: number } | null = null
 const silent = process.argv.includes('--silent') || process.argv.includes('--session')
-if (process.argv.includes('--service')) {
+if (process.argv.includes('--service') && process.platform === 'win32') {
   const { watchInteractiveSession } = await import('./session-launch.js')
   await watchInteractiveSession()
 }
@@ -73,7 +73,8 @@ function sendBin(data: Uint8Array) {
 function openUi() {
   const base = cfg.serverUrl.replace(/\/$/, '')
   const url = `${base}/#/host`
-  exec(`cmd /c start "" "${url}"`)
+  if (process.platform === 'darwin') exec(`open "${url}"`)
+  else exec(`cmd /c start "" "${url}"`)
 }
 
 startLocalApi({

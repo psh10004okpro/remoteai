@@ -2,6 +2,14 @@ import { exec } from 'node:child_process'
 import { log } from './log.js'
 
 export function notify(title: string, body: string) {
+  if (process.platform === 'darwin') {
+    const t = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const b = body.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    exec(`osascript -e 'display notification "${b}" with title "${t}"'`, (err) => {
+      if (err) log('notify', err)
+    })
+    return
+  }
   const t = title.replace(/'/g, "''")
   const b = body.replace(/'/g, "''")
   exec(

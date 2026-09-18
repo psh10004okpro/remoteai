@@ -27,7 +27,7 @@ export async function openTerminal(onData: (buf: Buffer) => void) {
   } catch (e) {
     log('node-pty missing, fallback powershell pipe', e)
   }
-  proc = spawn('powershell.exe', ['-NoLogo', '-NoExit'], {
+  proc = spawn(os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh', os.platform() === 'win32' ? ['-NoLogo', '-NoExit'] : ['-l'], {
     cwd: os.homedir(),
     windowsHide: true,
   })

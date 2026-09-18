@@ -27,7 +27,9 @@ function loadHostKey() {
 async function attachShell(stream: { write(d: Buffer | string): void; on(ev: string, cb: (...args: any[]) => void): void; exit(c: number): void; end(): void }, command?: string) {
   try {
     const pty = await import('node-pty')
-    const p = pty.spawn('powershell.exe', command ? ['-NoLogo', '-Command', command] : ['-NoLogo'], {
+    const shell = process.platform === 'darwin' ? '/bin/zsh' : 'powershell.exe'
+    const args = process.platform === 'darwin' ? (command ? ['-lc', command] : ['-l']) : command ? ['-NoLogo', '-Command', command] : ['-NoLogo']
+    const p = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
@@ -48,7 +50,9 @@ async function attachShell(stream: { write(d: Buffer | string): void; on(ev: str
   } catch (e) {
     log('ssh pty fallback', e)
   }
-  const shell = spawn('powershell.exe', command ? ['-NoLogo', '-Command', command] : ['-NoLogo'], {
+  const bin = process.platform === 'darwin' ? '/bin/zsh' : 'powershell.exe'
+  const args = process.platform === 'darwin' ? (command ? ['-lc', command] : ['-l']) : command ? ['-NoLogo', '-Command', command] : ['-NoLogo']
+  const shell = spawn(bin, args, {
     cwd: os.homedir(),
     windowsHide: true,
   })

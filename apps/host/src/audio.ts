@@ -9,7 +9,9 @@ export function startAudio(send: (b: Uint8Array) => void, onFail?: (err: string)
   stopAudio()
   const p = spawn(
     ffmpegBin(),
-    ['-f', 'wasapi', '-i', 'loopback', '-ac', '1', '-ar', '16000', '-f', 's16le', 'pipe:1'],
+    process.platform === 'darwin'
+      ? ['-f', 'avfoundation', '-i', ':0', '-ac', '1', '-ar', '16000', '-f', 's16le', 'pipe:1']
+      : ['-f', 'wasapi', '-i', 'loopback', '-ac', '1', '-ar', '16000', '-f', 's16le', 'pipe:1'],
     { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] },
   )
   proc = p

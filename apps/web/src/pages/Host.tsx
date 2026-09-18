@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatDeviceId } from '@remoteai/protocol'
-import { fetchLocalHost, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
 
 export default function Host() {
   const [info, setInfo] = useState<LocalHostInfo | null>(null)
@@ -55,7 +55,9 @@ export default function Host() {
       {err && (
         <p className="hint">
           {err}{' '}
-          <a href={HOST_SETUP_URL}>Windows 설치 파일 받기</a>
+          <a href={HOST_SETUP_URL}>Windows 설치</a>
+          {' · '}
+          <a href={HOST_SETUP_MAC_URL}>Mac 설치</a>
         </p>
       )}
       {info && (

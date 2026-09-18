@@ -1,6 +1,7 @@
 import { HOST_LOCAL_PORT } from '@remoteai/protocol'
 
 export const HOST_SETUP_URL = '/RemoteAI-Setup.exe'
+export const HOST_SETUP_MAC_URL = '/RemoteAI-Mac.zip'
 
 export function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'

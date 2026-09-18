@@ -20,6 +20,7 @@ export default defineConfig({
       '/ws': { target: 'http://127.0.0.1:18790', ws: true },
       '/api': { target: 'http://127.0.0.1:18790' },
       '/RemoteAI-Setup.exe': { target: 'http://127.0.0.1:18790' },
+      '/RemoteAI-Mac.zip': { target: 'http://127.0.0.1:18790' },
     },
   },
   preview: {

@@ -27,7 +27,10 @@ export type HostConfig = {
   accountToken?: string
 }
 
-const dir = path.join(os.homedir(), 'AppData', 'Roaming', 'RemoteAI')
+const dir =
+  process.platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support', 'RemoteAI')
+    : path.join(os.homedir(), 'AppData', 'Roaming', 'RemoteAI')
 const file = path.join(dir, 'config.json')
 
 export function configDir() {
