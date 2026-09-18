@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { fetchLocalHost, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
 import {
   api,
   clearSession,
@@ -155,6 +155,11 @@ export default function Home() {
               </>
             )}
             {err && <p className="hint" style={{ color: 'var(--danger)' }}>{err}</p>}
+            <p className="hint" style={{ marginTop: 12 }}>
+              이 Windows를 원격으로 열려면{' '}
+              <a href={HOST_SETUP_URL}>설치 파일</a>
+              을 받아 실행하세요. 폰·다른 PC에서 접속만 하면 설치는 필요 없습니다.
+            </p>
             <div className="row" style={{ marginTop: 16 }}>
               <button className="btn" type="submit">
                 {mode === 'signup' ? '가입하고 시작' : '로그인'}
@@ -262,7 +267,10 @@ export default function Home() {
                     <Link className="btn" to="/host">설정</Link>
                   </>
                 ) : (
-                  <p className="hint">이 PC를 원격 대상으로 쓰려면 호스트를 실행하세요.</p>
+                  <>
+                    <p className="hint">이 PC를 원격으로 열려면 Windows 설치 파일을 받아 실행하세요. 접속만 하면 설치는 필요 없습니다.</p>
+                    <a className="btn" href={HOST_SETUP_URL}>설치 파일 받기</a>
+                  </>
                 )}
               </div>
             </div>

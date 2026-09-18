@@ -103,6 +103,7 @@ input[type="text"], input[type="password"], input[type="number"] {
 }
 input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
 
+a.btn { display: inline-block; text-align: center; }
 .btn {
   border: 0;
   background: var(--teal);
