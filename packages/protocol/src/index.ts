@@ -93,6 +93,7 @@ export type Msg =
   | { type: 'host.hello'; protocol: number; name: string; os: string; mac?: string; token?: string; deviceId?: string; accountToken?: string; accountUser?: string; displays: DisplayInfo[]; capabilities: Capabilities }
   | { type: 'host.welcome'; deviceId: string; token: string; accountUser?: string }
   | { type: 'host.error'; message: string }
+  | { type: 'account.unlinked' }
   | { type: 'viewer.auth'; deviceId: string; password?: string; accountToken?: string }
   | { type: 'viewer.welcome'; deviceId: string; name: string; displays: DisplayInfo[]; capabilities: Capabilities; quality: QualitySettings }
   | { type: 'viewer.denied'; message: string }

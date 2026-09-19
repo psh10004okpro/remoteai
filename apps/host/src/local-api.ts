@@ -30,12 +30,10 @@ const clipRoot = path.join(os.tmpdir(), 'RemoteAI-clip')
 export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
   const server = http.createServer((req, res) => {
     const origin = req.headers.origin || ''
-    const allow =
-      origin.startsWith('http://127.0.0.1') ||
-      origin.startsWith('http://localhost') ||
-      origin.startsWith('http://[::1]') ||
-      !origin
-    res.setHeader('Access-Control-Allow-Origin', allow ? origin || '*' : 'http://127.0.0.1:5173')
+    const allow = originOk(origin, state.cfg().serverUrl)
+    if (allow && origin) res.setHeader('Access-Control-Allow-Origin', origin)
+    else if (allow) res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Vary', 'Origin')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     if (req.method === 'OPTIONS') {
@@ -48,7 +46,6 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
       const cfg = state.cfg()
       json(res, {
         deviceId: state.deviceId(),
-        password: cfg.password,
         serverUrl: cfg.serverUrl,
         autoStart: cfg.autoStart,
         sshLan: cfg.sshLan,
@@ -63,6 +60,15 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         hub: isLocalHub(cfg.serverUrl),
         hubUrls: lanUrls(),
       })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/local/pin') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      json(res, { password: state.cfg().password })
       return
     }
     if (req.method === 'POST' && url.pathname === '/local/onetime') {
@@ -145,6 +151,17 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
   })
   server.listen(port, '127.0.0.1')
   return server
+}
+
+function originOk(origin: string, serverUrl: string) {
+  if (!origin) return true
+  try {
+    const u = new URL(origin)
+    if (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '::1') return true
+    return new URL(serverUrl).origin === u.origin
+  } catch {
+    return false
+  }
 }
 
 function listRoots(dir: string) {

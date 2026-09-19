@@ -177,6 +177,26 @@ export function consumeRecovery(rec: UserRecord, code: string) {
   return true
 }
 
+export function deleteDevice(id: string, username: string) {
+  const rec = devices.get(id)
+  if (!rec || (rec.username || '').toLowerCase() !== username.toLowerCase()) return false
+  devices.delete(id)
+  void saveDevices()
+  return true
+}
+
+export function changePassword(rec: UserRecord, current: string, next: string) {
+  const key = rec.username.toLowerCase()
+  if (next.length < 6) return { ok: false as const, error: '비밀번호는 6자 이상이어야 합니다.' }
+  if (!sameHash(rec.passwordHash, hashSecret(current, `user:${key}`))) {
+    return { ok: false as const, error: '현재 비밀번호가 올바르지 않습니다.' }
+  }
+  rec.passwordHash = hashSecret(next, `user:${key}`)
+  rec.sessions = []
+  const token = issueSession(rec)
+  return { ok: true as const, token }
+}
+
 export function renameDevice(id: string, username: string, name: string) {
   const rec = devices.get(id)
   if (!rec || (rec.username || '').toLowerCase() !== username.toLowerCase()) return false
@@ -186,11 +206,14 @@ export function renameDevice(id: string, username: string, name: string) {
   return true
 }
 
+const SESSION_MAX_MS = Number(process.env.SESSION_MAX_MS || 30 * 24 * 3600 * 1000)
+
 export function userFromSession(token: string | undefined | null) {
   if (!token) return null
+  const now = Date.now()
   for (const rec of users.values()) {
     const want = hashSecret(token, `sess:${rec.username.toLowerCase()}`)
-    if (rec.sessions.some((s) => sameHash(s.tokenHash, want))) return rec
+    if (rec.sessions.some((s) => sameHash(s.tokenHash, want) && now - s.created < SESSION_MAX_MS)) return rec
   }
   return null
 }

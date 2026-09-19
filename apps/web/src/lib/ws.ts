@@ -14,7 +14,7 @@ export function localHostUrl() {
 
 export type LocalHostInfo = {
   deviceId: string
-  password: string
+  password?: string
   serverUrl: string
   autoStart: boolean
   sshLan: boolean
@@ -37,6 +37,13 @@ export async function fetchLocalHost(): Promise<LocalHostInfo | null> {
   } catch {
     return null
   }
+}
+
+export async function fetchLocalPin(): Promise<string> {
+  const r = await fetch(localHostUrl() + '/pin', { signal: AbortSignal.timeout(800) })
+  if (!r.ok) return ''
+  const body = (await r.json()) as { password?: string }
+  return body.password || ''
 }
 
 export function rememberId(id: string) {

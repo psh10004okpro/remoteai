@@ -70,6 +70,19 @@ export async function fetchDevices() {
   return api<{ devices: DeviceInfo[] }>('/api/devices')
 }
 
+export async function deleteDevice(id: string) {
+  return api<{ ok: boolean }>(`/api/devices/${id}/delete`, { method: 'POST' })
+}
+
+export async function changePassword(current: string, next: string) {
+  const r = await api<{ ok: boolean; token: string }>('/api/password', {
+    method: 'POST',
+    body: JSON.stringify({ current, next }),
+  })
+  if (r.token) localStorage.setItem(TOKEN, r.token)
+  return r
+}
+
 export async function renameDevice(id: string, name: string) {
   return api<{ ok: boolean; name: string }>(`/api/devices/${id}/rename`, {
     method: 'POST',

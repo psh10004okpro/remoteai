@@ -8,6 +8,8 @@ import {
   getToken,
   getUser,
   login,
+  changePassword,
+  deleteDevice,
   renameDevice,
   setPendingSession,
   signup,
@@ -231,6 +233,24 @@ export default function Home() {
                     <button className="btn ghost" type="button" onClick={() => { setEditing(d.id); setEditName(d.name) }}>
                       이름
                     </button>
+                    <button
+                      className="btn ghost"
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`${d.name}을(를) 목록에서 제거할까요? 그 PC 호스트는 계정에서 풀립니다.`)) return
+                        try {
+                          await deleteDevice(d.id)
+                          setFlashBad(false)
+                          setFlash(`${d.name}을(를) 제거했습니다.`)
+                          await refresh()
+                        } catch (e) {
+                          setFlashBad(true)
+                          setFlash(e instanceof Error ? e.message : String(e))
+                        }
+                      }}
+                    >
+                      삭제
+                    </button>
                     {!d.online && d.mac && (
                       <button
                         className="btn ghost"
@@ -258,6 +278,7 @@ export default function Home() {
               </div>
               <div className="card">
                 <h2>이 컴퓨터</h2>
+                <PasswordForm />
                 <TwoFactor />
                 {local ? (
                   <>
@@ -299,6 +320,46 @@ export default function Home() {
         </>
       )}
     </div>
+  )
+}
+
+function PasswordForm() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [again, setAgain] = useState('')
+  const [msg, setMsg] = useState('')
+  return (
+    <details className="adv" style={{ marginBottom: 12 }}>
+      <summary>비밀번호 변경</summary>
+      <label>현재 비밀번호</label>
+      <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+      <label>새 비밀번호</label>
+      <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+      <label>새 비밀번호 확인</label>
+      <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
+      <button
+        className="btn ghost"
+        type="button"
+        onClick={async () => {
+          if (next !== again) {
+            setMsg('새 비밀번호가 서로 다릅니다.')
+            return
+          }
+          try {
+            await changePassword(current, next)
+            setCurrent('')
+            setNext('')
+            setAgain('')
+            setMsg('비밀번호를 바꿨습니다. 다른 기기 로그인은 풀립니다.')
+          } catch (e) {
+            setMsg(e instanceof Error ? e.message : String(e))
+          }
+        }}
+      >
+        변경
+      </button>
+      {msg && <p className="hint">{msg}</p>}
+    </details>
   )
 }
 

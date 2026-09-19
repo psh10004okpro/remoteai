@@ -223,6 +223,12 @@ async function streamFile(transferId: number, filePath: string, batchId?: string
 
 async function handle(msg: Msg) {
   switch (msg.type) {
+    case 'account.unlinked':
+      cfg.accountUser = undefined
+      cfg.accountToken = undefined
+      saveConfig(cfg)
+      log('account unlinked')
+      break
     case 'host.welcome':
       deviceId = msg.deviceId
       cfg.deviceId = msg.deviceId
@@ -331,6 +337,7 @@ async function handle(msg: Msg) {
       if (msg.mac) sendMagic(msg.mac)
       break
     case 'clipboard.text':
+      if (viewOnly) break
       if (msg.origin === 'viewer') setClipboardText(msg.text)
       break
     case 'clipboard.files.accept':
@@ -345,6 +352,7 @@ async function handle(msg: Msg) {
       break
     }
     case 'file.start':
+      if (viewOnly) break
       if (msg.origin === 'viewer') beginIncoming(msg.transferId, msg.relativePath, msg.toPath, msg.batchId)
       break
     case 'file.end':
@@ -386,7 +394,15 @@ async function handle(msg: Msg) {
       handleSpecial('lock')
       break
     case 'ai.tool': {
+      const readOnly = new Set(['screenshot', 'list_dir', 'list_windows', 'clipboard_get'])
+      if (viewOnly && !readOnly.has(msg.name)) {
+        send({ type: 'ai.toolResult', id: msg.id, ok: false, text: '보기 전용이라 조작할 수 없습니다.' })
+        break
+      }
       const result = await runTool(msg.name, msg.args, displayId)
+      if (msg.name === 'clipboard_set' && result.ok) {
+        send({ type: 'clipboard.text', text: String(msg.args?.text || ''), origin: 'host' })
+      }
       send({ type: 'ai.toolResult', id: msg.id, ...result })
       break
     }

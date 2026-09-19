@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatDeviceId } from '@remoteai/protocol'
-import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, fetchLocalPin, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
 
 export default function Host() {
   const [info, setInfo] = useState<LocalHostInfo | null>(null)
@@ -16,12 +16,15 @@ export default function Host() {
 
   async function refresh() {
     const v = await fetchLocalHost()
-    setInfo(v)
-    if (!v) setErr('이 컴퓨터에서만 호스트 설정을 볼 수 있습니다. 호스트 에이전트가 켜져 있는지 확인하세요.')
-    else {
-      setErr('')
-      setServerUrl(v.serverUrl)
+    if (!v) {
+      setInfo(null)
+      setErr('이 컴퓨터에서만 호스트 설정을 볼 수 있습니다. 호스트 에이전트가 켜져 있는지 확인하세요.')
+      return
     }
+    const pin = await fetchLocalPin().catch(() => '')
+    setInfo({ ...v, password: pin || v.password || '' })
+    setErr('')
+    setServerUrl(v.serverUrl)
   }
 
   useEffect(() => {

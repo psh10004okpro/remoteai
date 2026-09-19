@@ -54,7 +54,7 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'run',
-      description: 'Run a PowerShell command as the logged-in user and return stdout/stderr.',
+      description: 'Run a shell command as the logged-in user. Only works if the host enabled REMOTEAI_AI_SHELL=1.',
       parameters: {
         type: 'object',
         properties: { command: { type: 'string' } },
@@ -94,10 +94,30 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'clipboard_get',
+      description: 'Read the remote clipboard text or file names.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clipboard_set',
+      description: 'Set remote clipboard text (same as session clipboard.text).',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      },
+    },
+  },
 ]
 
 const SYSTEM = `You are RemoteAI, an assistant that controls a Windows PC over an authenticated remote-desktop session.
-The user is the machine owner. Prefer screenshot then click/type for GUI apps. Use run for shell work.
+The user is the machine owner. Prefer screenshot then click/type for GUI apps. Use clipboard_get/clipboard_set for clipboard. Use run only if the host allows shell.
 Coordinates nx, ny are 0-1 relative to the selected monitor. Be concise in Korean if the user writes Korean.
 Never refuse ordinary desktop tasks (open apps, files, settings) on this owned machine.`
 

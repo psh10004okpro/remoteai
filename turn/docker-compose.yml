@@ -14,7 +14,7 @@ services:
       - --lt-cred-mech
       - --user=${TURN_USER:-remoteai}:${TURN_PASS:?set TURN_PASS}
       - --realm=remoteai
-      - --external-ip=${TURN_EXTERNAL_IP:-64.176.227.93}
+      - --external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP}
       - --min-port=49160
       - --max-port=49200
       - --no-cli

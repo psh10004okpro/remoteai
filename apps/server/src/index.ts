@@ -27,6 +27,8 @@ import {
   logoutSession,
   newToken,
   renameDevice,
+  deleteDevice,
+  changePassword,
   saveUser,
   upsertDevice,
   userFromSession,
@@ -35,6 +37,7 @@ import {
 import { otpauth, randomSecret, totpOk } from './totp.js'
 import { runAiTurn, type ToolBridge } from './ai.js'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { clientKey, corsAllowOrigin, defaultAllowedOrigins, rateLimited } from './security.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(here, '../../../.env') })
@@ -58,6 +61,7 @@ type Room = {
   aiHistory: ChatCompletionMessageParam[]
   pendingTools: Map<string, (r: { ok: boolean; text?: string; imageJpegBase64?: string }) => void>
   oneTime?: { code: string; expiresAt: number }
+  viewOnly: boolean
 }
 
 const rooms = new Map<string, Room>()
@@ -125,6 +129,7 @@ function roomOf(deviceId: string): Room {
       aiBusy: false,
       aiHistory: [],
       pendingTools: new Map(),
+      viewOnly: false,
     }
     rooms.set(deviceId, r)
   }
@@ -153,9 +158,10 @@ await loadStore()
 
 const app = express()
 app.use((req, res, next) => {
-  const origin = req.headers.origin
-  if (origin) res.setHeader('Access-Control-Allow-Origin', origin)
-  else res.setHeader('Access-Control-Allow-Origin', '*')
+  const allowed = defaultAllowedOrigins(PORT, publicBase())
+  const allow = corsAllowOrigin(req.headers.origin, allowed)
+  if (allow) res.setHeader('Access-Control-Allow-Origin', allow)
+  res.setHeader('Vary', 'Origin')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   if (req.method === 'OPTIONS') {
@@ -214,6 +220,10 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.post('/api/signup', (req, res) => {
+  if (rateLimited(clientKey(req.ip || '', 'signup'), 8, 15 * 60_000)) {
+    res.status(429).json({ error: '잠시 후 다시 시도하세요.' })
+    return
+  }
   const username = String(req.body?.username || '').trim()
   const password = String(req.body?.password || '')
   const made = createUser(username, password)
@@ -230,6 +240,10 @@ app.post('/api/signup', (req, res) => {
 })
 
 app.post('/api/login', (req, res) => {
+  if (rateLimited(clientKey(req.ip || '', 'login'), 20, 15 * 60_000)) {
+    res.status(429).json({ error: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' })
+    return
+  }
   const username = String(req.body?.username || '').trim()
   const password = String(req.body?.password || '')
   const totp = String(req.body?.totp || '')
@@ -346,6 +360,62 @@ app.get('/api/devices', (req, res) => {
     mac: d.mac || null,
   }))
   res.json({ devices: list })
+})
+
+app.post('/api/password', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  if (rateLimited(clientKey(req.ip || '', 'password'), 8, 15 * 60_000)) {
+    res.status(429).json({ error: '잠시 후 다시 시도하세요.' })
+    return
+  }
+  const current = String(req.body?.current || '')
+  const next = String(req.body?.next || '')
+  const r = changePassword(user, current, next)
+  if (!r.ok) {
+    res.status(400).json({ error: r.error })
+    return
+  }
+  res.json({ ok: true, token: r.token })
+})
+
+app.post('/api/devices/:id/delete', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const id = req.params.id
+  const rec = getDevice(id)
+  if (!rec || (rec.username || '').toLowerCase() !== user.username.toLowerCase()) {
+    res.status(404).json({ error: '기기를 찾을 수 없습니다.' })
+    return
+  }
+  const room = rooms.get(id)
+  deleteDevice(id, user.username)
+  if (room?.host) send(room.host.ws, { type: 'account.unlinked' })
+  for (const v of room?.viewers.values() || []) {
+    send(v.ws, { type: 'session.end', reason: '이 컴퓨터가 계정에서 제거되었습니다.' })
+  }
+  setTimeout(() => {
+    try {
+      room?.host?.ws.close()
+    } catch {
+      /* ignore */
+    }
+    for (const v of room?.viewers.values() || []) {
+      try {
+        v.ws.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    rooms.delete(id)
+  }, 400)
+  res.json({ ok: true })
 })
 
 app.post('/api/devices/:id/rename', (req, res) => {
@@ -578,6 +648,10 @@ async function handleJson(client: Client, msg: Msg) {
       if (client.role !== 'viewer' || !client.deviceId) return
       const room = rooms.get(client.deviceId)
       if (!room?.host) return
+      if (room.viewOnly) {
+        send(client.ws, { type: 'ai.error', message: '보기 전용이라 AI로 조작할 수 없습니다.' })
+        return
+      }
       if (room.aiBusy) {
         send(client.ws, { type: 'ai.status', text: '이전 요청을 처리 중입니다.' })
         return
@@ -614,6 +688,13 @@ async function handleJson(client: Client, msg: Msg) {
       } finally {
         room.aiBusy = false
       }
+      return
+    }
+    case 'session.viewOnly': {
+      if (client.role !== 'viewer' || !client.deviceId) return
+      const room = rooms.get(client.deviceId)
+      if (room) room.viewOnly = !!msg.on
+      if (room?.host) send(room.host.ws, msg)
       return
     }
     case 'ai.toolResult': {

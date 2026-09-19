@@ -40,6 +40,9 @@ export async function runTool(
         return { ok: true, text: `pressed ${combo}` }
       }
       case 'run': {
+        if (process.env.REMOTEAI_AI_SHELL !== '1') {
+          return { ok: false, text: '원격 셸은 꺼져 있습니다. 호스트에 REMOTEAI_AI_SHELL=1 을 설정하세요.' }
+        }
         const cmd = String(args.command || '')
         const line = process.platform === 'darwin' ? cmd : `powershell -NoProfile -Command ${escapePs(cmd)}`
         const { stdout, stderr } = await execp(line, {
@@ -87,7 +90,8 @@ export async function runTool(
       }
       case 'clipboard_get': {
         const c = getClipboard()
-        return { ok: true, text: c.files.length ? c.files.join('\n') : c.text || '' }
+        if (c.kind === 'files') return { ok: true, text: c.files.join('\n') }
+        return { ok: true, text: c.text || '' }
       }
       case 'clipboard_set':
         setClipboardText(String(args.text || ''))

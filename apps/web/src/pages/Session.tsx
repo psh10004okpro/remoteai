@@ -506,6 +506,7 @@ export default function Session() {
   }
 
   async function sendFiles(list: File[], relative: string[] = []) {
+    if (viewOnly) return
     if (!list.length) return
     const batchId = `${Date.now()}-${transferId.current}`
     const grand = list.reduce((n, f) => n + f.size, 0) || 1
@@ -878,7 +879,7 @@ export default function Session() {
             )}
             {panel === 'ai' && (
               <>
-                <header>AI로 이 컴퓨터 조작 · 채팅</header>
+                <header>AI로 이 컴퓨터 조작 · 채팅{viewOnly ? ' (보기 전용)' : ''}</header>
                 <div className="chat">
                   {chat.map((m, i) => (
                     <div key={i} className={`bubble ${m.from === 'ai' ? 'ai' : m.from === 'system' ? 'sys' : 'me'}`}>
@@ -891,6 +892,10 @@ export default function Session() {
                   onSubmit={(e) => {
                     e.preventDefault()
                     if (!aiInput.trim()) return
+                    if (viewOnly) {
+                      setChat((c) => [...c, { from: 'system', text: '보기 전용이라 AI로 조작할 수 없습니다.' }])
+                      return
+                    }
                     setChat((c) => [...c, { from: 'me', text: aiInput }])
                     send({ type: 'ai.user', text: aiInput })
                     setAiInput('')
