@@ -30,6 +30,8 @@ npm install
 npm run dev
 ```
 
+공개 허브: `https://remote.unwoldamstudio.com`
+
 브라우저가 `http://127.0.0.1:5173/#/host` 로 열립니다.
 
 - 홈에서 **회원가입/로그인** 합니다. 같은 계정으로 로그인한 컴퓨터가 「내 컴퓨터」 목록에 나타납니다.

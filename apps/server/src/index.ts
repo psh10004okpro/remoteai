@@ -39,6 +39,8 @@ import { runAiTurn, type ToolBridge } from './ai.js'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { clientKey, corsAllowOrigin, defaultAllowedOrigins, rateLimited } from './security.js'
 import { audit } from './audit.js'
+import { hubLog } from './hub-log.js'
+import { buildOpsReport, filterLogs } from './ops-report.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(here, '../../../.env') })
@@ -67,6 +69,7 @@ type Room = {
 
 const rooms = new Map<string, Room>()
 const PORT = Number(process.env.PORT || DEFAULT_PORT)
+const startedAt = new Date().toISOString()
 const webDist = path.resolve(here, '../../web/dist')
 const dataRoot = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(here, '../data')
 
@@ -103,8 +106,14 @@ async function ensureReleaseAsset(name: string) {
 }
 
 function publicBase() {
-  const raw = (process.env.PUBLIC_URL || process.env.COOLIFY_URL || '').trim()
-  if (raw) return raw.replace(/\/$/, '')
+  let raw = (process.env.PUBLIC_URL || process.env.COOLIFY_URL || '').trim()
+  if (raw) {
+    raw = raw.replace(/\/$/, '')
+    if (raw.startsWith('http://') && !/localhost|127\.0\.0\.1/i.test(raw)) {
+      raw = 'https://' + raw.slice('http://'.length)
+    }
+    return raw
+  }
   const fqdn = (process.env.COOLIFY_FQDN || '').trim()
   if (fqdn) return `https://${fqdn.replace(/^https?:\/\//, '')}`
   return ''
@@ -222,6 +231,7 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/signup', (req, res) => {
   if (rateLimited(clientKey(req.ip || '', 'signup'), 8, 15 * 60_000)) {
+    hubLog('warn', 'rate.signup', { ip: req.ip })
     res.status(429).json({ error: '잠시 후 다시 시도하세요.' })
     return
   }
@@ -245,6 +255,7 @@ app.post('/api/signup', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   if (rateLimited(clientKey(req.ip || '', 'login'), 20, 15 * 60_000)) {
+    hubLog('warn', 'rate.login', { ip: req.ip })
     res.status(429).json({ error: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' })
     return
   }
@@ -292,6 +303,71 @@ app.get('/api/me', (req, res) => {
     return
   }
   res.json({ username: user.username, totpEnabled: !!user.totpEnabled })
+})
+
+app.get('/api/ops/logs', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const limit = Number(req.query.limit || 200)
+  const level = req.query.level === 'error' || req.query.level === 'warn' || req.query.level === 'info' ? req.query.level : undefined
+  res.json({ logs: filterLogs(limit, level) })
+})
+
+app.get('/api/ops/report', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  const list = listDevicesForUser(user.username).map((d) => ({
+    id: d.id,
+    name: d.name,
+    online: !!rooms.get(d.id)?.host,
+    lastSeen: d.lastSeen,
+  }))
+  const roomSnap = [...rooms.entries()]
+    .filter(([id]) => list.some((d) => d.id === id))
+    .map(([deviceId, r]) => ({
+      deviceId,
+      name: r.name,
+      host: !!r.host,
+      viewers: r.viewers.size,
+      viewOnly: r.viewOnly,
+    }))
+  res.json(
+    buildOpsReport({
+      startedAt,
+      version: PROTOCOL_VERSION_SAFE(),
+      publicUrl: publicBase() || null,
+      turn: !!(process.env.TURN_URL || '').trim(),
+      xai: !!(process.env.XAI_API_KEY || '').trim(),
+      rooms: roomSnap,
+      devices: list,
+      username: user.username,
+    }),
+  )
+})
+
+app.post('/api/ops/client', (req, res) => {
+  const user = userFromSession(String(bearer(req) || ''))
+  if (!user) {
+    res.status(401).json({ error: '로그인이 필요합니다.' })
+    return
+  }
+  if (rateLimited(clientKey(req.ip || '', 'opsclient'), 40, 60_000)) {
+    res.status(429).json({ error: '잠시 후 다시 시도하세요.' })
+    return
+  }
+  const level = req.body?.level === 'error' ? 'error' : req.body?.level === 'warn' ? 'warn' : 'info'
+  hubLog(level, 'client', {
+    username: user.username,
+    page: String(req.body?.page || '').slice(0, 120),
+    message: String(req.body?.message || '').slice(0, 500),
+  })
+  res.json({ ok: true })
 })
 
 app.post('/api/2fa/setup', (req, res) => {
@@ -502,9 +578,27 @@ if (fs.existsSync(webDist)) {
 
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 * 1024 })
+const wsAlive = new WeakMap<WebSocket, boolean>()
+setInterval(() => {
+  for (const client of wss.clients) {
+    if (wsAlive.get(client) === false) {
+      hubLog('warn', 'ws.idle-timeout', {})
+      client.terminate()
+      continue
+    }
+    wsAlive.set(client, false)
+    try {
+      client.ping()
+    } catch {
+      /* ignore */
+    }
+  }
+}, 20000).unref()
 
 wss.on('connection', (ws) => {
   const client: Client = { ws, role: 'unknown' }
+  wsAlive.set(ws, true)
+  ws.on('pong', () => wsAlive.set(ws, true))
 
   ws.on('message', async (data, isBinary) => {
     if (isBinary) {
@@ -526,12 +620,18 @@ wss.on('connection', (ws) => {
     try {
       await handleJson(client, msg)
     } catch (err) {
+      hubLog('error', 'ws.handler', {
+        role: client.role,
+        deviceId: client.deviceId,
+        message: err instanceof Error ? err.message : String(err),
+      })
       send(ws, { type: 'host.error', message: err instanceof Error ? err.message : String(err) })
     }
   })
 
   ws.on('close', () => {
     if (client.role === 'host' && client.deviceId) {
+      hubLog('warn', 'ws.host.close', { deviceId: client.deviceId })
       const room = rooms.get(client.deviceId)
       if (room && room.host === client) {
         room.host = undefined
@@ -691,6 +791,7 @@ async function handleJson(client: Client, msg: Msg) {
         room.aiHistory.push({ role: 'user', content: msg.text }, { role: 'assistant', content: text })
         broadcastViewers(room, { type: 'ai.assistant', text })
       } catch (err) {
+        hubLog('error', 'ai.turn', { deviceId: client.deviceId, message: err instanceof Error ? err.message : String(err) })
         broadcastViewers(room, {
           type: 'ai.error',
           message: err instanceof Error ? err.message : String(err),
@@ -763,4 +864,5 @@ server.listen(PORT, '0.0.0.0', () => {
   const pub = publicBase()
   if (pub) console.log(`[remoteai-server] public ${pub}`)
   for (const ip of lanIps()) console.log(`[remoteai-server] http://${ip}:${PORT}`)
+  hubLog('info', 'hub.start', { port: PORT, publicUrl: pub || null })
 })

@@ -32,6 +32,7 @@ const pkg = {
     'node-pty': '^1.0.0',
     systray2: '^2.1.4',
     ssh2: '^1.16.0',
+    ws: '^8.18.1',
   },
 }
 writeFileSync(path.join(out, 'package.json'), JSON.stringify(pkg, null, 2))

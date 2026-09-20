@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:koffi --external:node-screenshots --external:sharp --external:node-pty --external:systray2 --external:ssh2",
+    "build": "node build.mjs",
     "start": "node dist/index.js",
     "test:capture": "tsx src/capture-test.ts"
   },

@@ -9,6 +9,7 @@ export function defaultAllowedOrigins(port: number, publicUrl: string) {
   ]
   const pub = publicUrl.replace(/\/$/, '')
   if (pub) list.push(pub)
+  list.push('https://remote.unwoldamstudio.com')
   for (const extra of (process.env.CORS_ORIGINS || '').split(',')) {
     const s = extra.trim().replace(/\/$/, '')
     if (s) list.push(s)

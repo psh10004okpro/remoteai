@@ -29,6 +29,7 @@ const pkg = {
     'node-pty': '^1.0.0',
     systray2: '^2.1.4',
     ssh2: '^1.16.0',
+    ws: '^8.18.1',
   },
 }
 writeFileSync(path.join(out, 'package.json'), JSON.stringify(pkg, null, 2))
@@ -158,7 +159,7 @@ writeFileSync(
 - 원격으로 열릴 Windows PC에 설치합니다. (호스트)
 - 접속만 하는 폰/다른 PC는 설치하지 않아도 됩니다.
   브라우저에서 아래 주소로 로그인하면 됩니다.
-  ${'https://n14di7zep9bvjhkkrk1rlfw9.64.176.227.93.sslip.io'}
+  ${'https://remote.unwoldamstudio.com'}
 - 접속하는 Windows에도 설치하면
   1) 그 PC도 목록에 올라 서로 들어갈 수 있고
   2) 원격 파일을 탐색기에 Ctrl+V 로 붙여넣을 수 있습니다.
@@ -167,6 +168,7 @@ writeFileSync(
 H.264 화면과 소리는 이 폴더의 ffmpeg.exe 를 씁니다.
 
 잠금 화면·부팅 직후부터 열려면 "설치-서비스.cmd" 를 관리자로 실행하세요.
+UAC 창이 뜨면 예를 누르세요. 로그온 작업이 거부되면 관리자 설치가 필요합니다.
 `,
 )
 

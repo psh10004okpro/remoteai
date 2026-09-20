@@ -10,6 +10,7 @@ import {
 
 test('cors reflects only allowlisted origins', () => {
   const allowed = defaultAllowedOrigins(18790, 'https://hub.example')
+  assert.equal(corsAllowOrigin('https://remote.unwoldamstudio.com', allowed), 'https://remote.unwoldamstudio.com')
   assert.equal(corsAllowOrigin('https://hub.example', allowed), 'https://hub.example')
   assert.equal(corsAllowOrigin('http://127.0.0.1:5173', allowed), 'http://127.0.0.1:5173')
   assert.equal(corsAllowOrigin('https://evil.example', allowed), undefined)

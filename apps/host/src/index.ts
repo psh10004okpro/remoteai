@@ -427,8 +427,22 @@ function connect() {
   log('connecting', url)
   const sock = new WebSocket(url)
   ws = sock
+  let hb: ReturnType<typeof setInterval> | undefined
   sock.on('open', () => {
     online = true
+    hb = setInterval(() => {
+      if (sock.readyState !== WebSocket.OPEN) return
+      try {
+        sock.ping()
+      } catch {
+        /* ignore */
+      }
+      try {
+        send({ type: 'ping', t: Date.now() })
+      } catch {
+        /* ignore */
+      }
+    }, 20000)
     send({
       type: 'host.hello',
       protocol: 1,
@@ -461,6 +475,7 @@ function connect() {
       .catch((e) => log('ws message', e))
   })
   sock.on('close', () => {
+    if (hb) clearInterval(hb)
     if (ws !== sock) return
     online = false
     viewers = 0
@@ -473,5 +488,4 @@ function connect() {
 connect()
 
 log('RemoteAI host started', silent ? 'silent' : 'interactive')
-log('password', cfg.password)
 if (!silent) setTimeout(openUi, 2500)
