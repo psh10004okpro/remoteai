@@ -10,6 +10,7 @@ import {
   login,
   changePassword,
   deleteDevice,
+  fetchOpsReport,
   renameDevice,
   setPendingSession,
   signup,
@@ -131,6 +132,35 @@ export default function Home() {
               }}
             >
               로그아웃
+            </button>
+          )}
+          {user && (
+            <button
+              className="btn ghost"
+              type="button"
+              onClick={async () => {
+                try {
+                  const r = await fetchOpsReport()
+                  let extra = ''
+                  try {
+                    const h = await fetch(localHostUrl() + '/logs')
+                    if (h.ok) {
+                      const body = (await h.json()) as { logs?: unknown }
+                      extra = '\n\n# 이 PC 호스트 로그\n```json\n' + JSON.stringify(body.logs || [], null, 2) + '\n```'
+                    }
+                  } catch {
+                    extra = '\n\n# 이 PC 호스트 로그\n(이 브라우저에서 호스트에 닿지 않음)'
+                  }
+                  await navigator.clipboard.writeText(r.prompt + extra)
+                  setFlashBad(false)
+                  setFlash('진단 리포트를 클립보드에 넣었습니다. 그록에 붙여 넣으면 원인 분석을 할 수 있습니다.')
+                } catch (e) {
+                  setFlashBad(true)
+                  setFlash(e instanceof Error ? e.message : String(e))
+                }
+              }}
+            >
+              진단 복사
             </button>
           )}
         </nav>

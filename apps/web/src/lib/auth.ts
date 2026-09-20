@@ -70,6 +70,21 @@ export async function fetchDevices() {
   return api<{ devices: DeviceInfo[] }>('/api/devices')
 }
 
+export async function fetchOpsReport() {
+  return api<{ prompt: string; json: unknown }>('/api/ops/report')
+}
+
+export async function reportClientError(page: string, message: string) {
+  try {
+    await api('/api/ops/client', {
+      method: 'POST',
+      body: JSON.stringify({ level: 'error', page, message: message.slice(0, 500) }),
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function deleteDevice(id: string) {
   return api<{ ok: boolean }>(`/api/devices/${id}/delete`, { method: 'POST' })
 }

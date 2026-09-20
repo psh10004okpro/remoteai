@@ -7,7 +7,7 @@ import type { HostConfig } from './config.js'
 import { isLocalHub, lanUrls } from './net.js'
 import { setClipboardFiles } from './clipboard.js'
 import { sendMagic } from './wol.js'
-import { log } from './log.js'
+import { log, recentHostLogs } from './log.js'
 
 export type LocalState = {
   cfg: () => HostConfig
@@ -60,6 +60,15 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         hub: isLocalHub(cfg.serverUrl),
         hubUrls: lanUrls(),
       })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/local/logs') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      json(res, { logs: recentHostLogs(Number(url.searchParams.get('limit') || 200)) })
       return
     }
     if (req.method === 'GET' && url.pathname === '/local/pin') {

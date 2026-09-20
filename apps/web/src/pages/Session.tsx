@@ -18,7 +18,7 @@ import {
 } from '@remoteai/protocol'
 import { fetchLocalHost, localHostUrl, wsUrl } from '../lib/ws'
 import { downloadBlob, zipStore } from '../lib/zip'
-import { clearPendingSession, getToken, takePendingSession } from '../lib/auth'
+import { clearPendingSession, getToken, reportClientError, takePendingSession } from '../lib/auth'
 
 type ChatItem = { from: string; text: string }
 
@@ -153,9 +153,11 @@ export default function Session() {
           break
         case 'viewer.denied':
           setStatus(msg.message)
+          void reportClientError('session', 'viewer.denied: ' + msg.message)
           break
         case 'session.end':
           setStatus(msg.reason)
+          void reportClientError('session', 'session.end: ' + msg.reason)
           break
         case 'display.list':
           setDisplays(msg.displays)
