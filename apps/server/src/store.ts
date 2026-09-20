@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -47,13 +47,27 @@ export async function loadStore() {
   }
 }
 
+async function rotateBackup(file: string) {
+  for (let i = 3; i >= 1; i--) {
+    const src = i === 1 ? file : `${file}.bak.${i - 1}`
+    const dest = `${file}.bak.${i}`
+    try {
+      await copyFile(src, dest)
+    } catch {
+      /* missing */
+    }
+  }
+}
+
 async function saveDevices() {
   await mkdir(dataDir, { recursive: true })
+  await rotateBackup(deviceFile)
   await writeFile(deviceFile, JSON.stringify([...devices.values()], null, 2))
 }
 
 async function saveUsers() {
   await mkdir(dataDir, { recursive: true })
+  await rotateBackup(userFile)
   await writeFile(userFile, JSON.stringify([...users.values()], null, 2))
 }
 

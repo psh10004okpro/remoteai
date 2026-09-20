@@ -38,6 +38,7 @@ import { otpauth, randomSecret, totpOk } from './totp.js'
 import { runAiTurn, type ToolBridge } from './ai.js'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { clientKey, corsAllowOrigin, defaultAllowedOrigins, rateLimited } from './security.js'
+import { audit } from './audit.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(here, '../../../.env') })
@@ -228,14 +229,17 @@ app.post('/api/signup', (req, res) => {
   const password = String(req.body?.password || '')
   const made = createUser(username, password)
   if (!made.ok) {
+    audit('signup.fail', { username, ip: req.ip, reason: made.error })
     res.status(400).json({ error: made.error })
     return
   }
   const logged = loginUser(username, password)
   if (!logged.ok) {
+    audit('signup.fail', { username, ip: req.ip, reason: logged.error })
     res.status(400).json({ error: logged.error })
     return
   }
+  audit('signup.ok', { username, ip: req.ip })
   res.json({ token: logged.token, username: logged.username })
 })
 
@@ -249,6 +253,7 @@ app.post('/api/login', (req, res) => {
   const totp = String(req.body?.totp || '')
   const logged = loginUser(username, password)
   if (!logged.ok) {
+    audit('login.fail', { username, ip: req.ip })
     res.status(401).json({ error: logged.error })
     return
   }
@@ -261,13 +266,16 @@ app.post('/api/login', (req, res) => {
     const totpGood = rec?.totpSecret && totpOk(rec.totpSecret, totp)
     const recGood = rec && consumeRecovery(rec, totp)
     if (!rec || (!totpGood && !recGood)) {
+      audit('login.fail', { username, ip: req.ip, reason: 'totp' })
       res.status(401).json({ error: '인증 앱 코드 또는 복구 코드가 올바르지 않습니다.', totpRequired: true })
       return
     }
     const token = issueSession(rec)
+    audit('login.ok', { username: rec.username, ip: req.ip })
     res.json({ token, username: rec.username })
     return
   }
+  audit('login.ok', { username: logged.username, ip: req.ip })
   res.json({ token: logged.token, username: logged.username })
 })
 
@@ -379,6 +387,7 @@ app.post('/api/password', (req, res) => {
     res.status(400).json({ error: r.error })
     return
   }
+  audit('password.change', { username: user.username, ip: req.ip })
   res.json({ ok: true, token: r.token })
 })
 
@@ -396,6 +405,7 @@ app.post('/api/devices/:id/delete', (req, res) => {
   }
   const room = rooms.get(id)
   deleteDevice(id, user.username)
+  audit('device.delete', { username: user.username, deviceId: id, ip: req.ip })
   if (room?.host) send(room.host.ws, { type: 'account.unlinked' })
   for (const v of room?.viewers.values() || []) {
     send(v.ws, { type: 'session.end', reason: '이 컴퓨터가 계정에서 제거되었습니다.' })
