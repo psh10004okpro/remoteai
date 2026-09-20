@@ -53,7 +53,13 @@ function writeIcon(dest: string) {
   writeFileSync(dest, Buffer.concat([header, dib, xor]))
 }
 
-export async function startTray(opts: { deviceId: () => string; password: () => string; openUi: () => void }) {
+export async function startTray(opts: {
+  deviceId: () => string
+  password: () => string
+  openUi: () => void
+  checkUpdate?: () => void
+  doUpdate?: () => void
+}) {
   try {
     const { default: SysTray } = await import('systray2')
     const icon = path.join(configDir(), 'icon.ico')
@@ -67,6 +73,8 @@ export async function startTray(opts: { deviceId: () => string; password: () => 
         items: [
           { title: 'RemoteAI', enabled: false, checked: false },
           { title: '대시보드 열기', enabled: true, checked: false },
+          { title: '업데이트 확인', enabled: true, checked: false },
+          { title: '지금 업데이트', enabled: true, checked: false },
           { title: 'ID 복사', enabled: true, checked: false },
           { title: '종료', enabled: true, checked: false },
         ],
@@ -76,10 +84,12 @@ export async function startTray(opts: { deviceId: () => string; password: () => 
     })
     tray.onClick((action: { seq_id: number }) => {
       if (action.seq_id === 1) opts.openUi()
-      if (action.seq_id === 2) {
+      if (action.seq_id === 2) opts.checkUpdate?.()
+      if (action.seq_id === 3) opts.doUpdate?.()
+      if (action.seq_id === 4) {
         exec(`cmd /c echo ${formatDeviceId(opts.deviceId())}| clip`)
       }
-      if (action.seq_id === 3) {
+      if (action.seq_id === 5) {
         tray.kill()
         process.exit(0)
       }

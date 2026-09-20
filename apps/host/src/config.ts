@@ -31,6 +31,8 @@ export type HostConfig = {
   lockOnDisconnect: boolean
   accountUser?: string
   accountToken?: string
+  updateSnoozeUntil?: number
+  snoozedVersion?: string
 }
 
 const dir =
@@ -59,6 +61,8 @@ export function loadConfig(): HostConfig {
       lockOnDisconnect: raw.lockOnDisconnect ?? false,
       accountUser: raw.accountUser,
       accountToken: raw.accountToken,
+      updateSnoozeUntil: raw.updateSnoozeUntil,
+      snoozedVersion: raw.snoozedVersion,
     }
     if (serverUrl !== (raw.serverUrl || '').replace(/\/$/, '')) saveConfig(cfg)
     return cfg

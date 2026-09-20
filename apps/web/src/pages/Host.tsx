@@ -259,8 +259,106 @@ export default function Host() {
               SSH: <code>ssh -p 2222 {info.username || 'user'}@127.0.0.1</code>
             </p>
           </details>
+          <HostUpdate info={info} onBusy={setErr} />
         </div>
       )}
+    </div>
+  )
+}
+
+function newerThan(latest: string, current: string) {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0)
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true
+    if ((a[i] || 0) < (b[i] || 0)) return false
+  }
+  return false
+}
+
+function HostUpdate({ info, onBusy }: { info: LocalHostInfo; onBusy: (s: string) => void }) {
+  const [latest, setLatest] = useState(info.update?.latest || '')
+  const [available, setAvailable] = useState(!!(info.update?.available && !info.update?.snoozed))
+  const [busy, setBusy] = useState('')
+  async function check() {
+    const r = await fetch(localHostUrl() + '/check-update', { method: 'POST' })
+    const b = (await r.json()) as { update?: LocalHostInfo['update'] }
+    const u = b.update
+    setLatest(u?.latest || '')
+    setAvailable(!!(u?.available && !u?.snoozed))
+    if (u?.available && !u.snoozed) onBusy(`새 버전 ${u.latest}이 있습니다. 지금 올리거나 그대로 쓸 수 있습니다.`)
+    else onBusy(`최신입니다. (${u?.current || info.version})`)
+  }
+  const hasNew = available || (latest && info.version && newerThan(latest, info.version) && !info.update?.snoozed)
+  return (
+    <div style={{ marginTop: 20 }}>
+      <h2>이 컴퓨터 프로그램</h2>
+      {hasNew && (
+        <p className="hint" style={{ color: 'var(--accent, #5eead4)' }}>
+          새 버전 {latest}이 있습니다. 지금은 그대로 써도 되고, 올리면 PIN·계정은 유지된 채 다시 붙습니다.
+        </p>
+      )}
+      <p className="hint">
+        설치 버전 {info.version || '알 수 없음'}
+        {latest ? ` · 최신 ${latest}` : ''}
+      </p>
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn ghost" type="button" disabled={!!busy} onClick={() => void check()}>
+          업데이트 확인
+        </button>
+        <button
+          className="btn"
+          type="button"
+          disabled={!!busy}
+          onClick={async () => {
+            if (!confirm('업데이트하면 호스트가 잠깐 꺼졌다가, 같은 설정으로 다시 연결됩니다. 계속할까요?')) return
+            setBusy('update')
+            onBusy('설치 파일을 받는 중입니다. 끝나면 호스트가 자동으로 다시 켜집니다.')
+            try {
+              const r = await fetch(localHostUrl() + '/update', { method: 'POST' })
+              const b = await r.json().catch(() => ({}))
+              onBusy((b as { message?: string }).message || '업데이트를 시작했습니다.')
+            } catch (e) {
+              onBusy(e instanceof Error ? e.message : String(e))
+            }
+            setBusy('')
+          }}
+        >
+          지금 업데이트
+        </button>
+        {hasNew && (
+          <button
+            className="btn ghost"
+            type="button"
+            disabled={!!busy}
+            onClick={async () => {
+              await fetch(localHostUrl() + '/snooze-update', { method: 'POST' })
+              setAvailable(false)
+              onBusy('지금은 그대로 씁니다. 7일 뒤 또는 다음 확인 때 다시 알려 드립니다.')
+            }}
+          >
+            나중에 · 그대로 사용
+          </button>
+        )}
+        <button
+          className="btn ghost"
+          type="button"
+          disabled={!!busy}
+          onClick={async () => {
+            if (!confirm('이 컴퓨터에서 RemoteAI 호스트를 제거할까요?')) return
+            setBusy('uninstall')
+            try {
+              await fetch(localHostUrl() + '/uninstall', { method: 'POST' })
+              onBusy('제거를 시작했습니다.')
+            } catch (e) {
+              onBusy(e instanceof Error ? e.message : String(e))
+            }
+            setBusy('')
+          }}
+        >
+          이 컴퓨터에서 삭제
+        </button>
+      </div>
     </div>
   )
 }

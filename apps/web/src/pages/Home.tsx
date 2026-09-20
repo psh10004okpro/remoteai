@@ -319,6 +319,13 @@ export default function Home() {
                     {!local.accountUser && (
                       <p className="hint">아직 계정에 안 묶여 「내 컴퓨터」에 안 보입니다. 설정에서 같은 아이디로 연결하세요.</p>
                     )}
+                    {local.update?.available && !local.update.snoozed && (
+                      <p className="hint" style={{ marginTop: 10 }}>
+                        새 버전 {local.update.latest}이 있습니다.{' '}
+                        <Link to="/host">지금 업데이트</Link>
+                        하거나 그대로 써도 됩니다. 올리면 연결 설정은 유지됩니다.
+                      </p>
+                    )}
                     <Link className="btn" to="/host">{local.accountUser ? '설정' : '이 컴퓨터 계정에 연결'}</Link>
                   </>
                 ) : (

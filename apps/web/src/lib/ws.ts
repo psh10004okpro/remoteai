@@ -27,6 +27,9 @@ export type LocalHostInfo = {
   accountUser?: string | null
   hub?: boolean
   hubUrls?: string[]
+  version?: string
+  packaged?: boolean
+  update?: { current: string; latest: string; available: boolean; snoozed: boolean }
 }
 
 export async function fetchLocalHost(): Promise<LocalHostInfo | null> {

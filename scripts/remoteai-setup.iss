@@ -1,7 +1,7 @@
 #define MyAppName "RemoteAI"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "RemoteAI"
-#define MyAppURL "https://n14di7zep9bvjhkkrk1rlfw9.64.176.227.93.sslip.io"
+#define MyAppURL "https://remote.unwoldamstudio.com"
 #define MyAppExeName "RemoteAI.cmd"
 
 [Setup]
@@ -16,6 +16,8 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+UsePreviousTasks=yes
+CloseApplications=yes
 OutputDir=..\dist
 OutputBaseFilename=RemoteAI-Setup
 Compression=lzma2/fast
@@ -42,7 +44,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\RemoteAI"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "지금 호스트 시작"; Flags: nowait postinstall skipifsilent; Check: not WantService
+Filename: "{app}\{#MyAppExeName}"; Description: "지금 호스트 시작"; Flags: nowait postinstall; Check: not WantService
 Filename: "{app}\RemoteAI-service.exe"; Parameters: "install"; StatusMsg: "Windows 서비스 등록 중…"; Flags: runhidden; Check: WantService
 Filename: "{sys}\sc.exe"; Parameters: "start RemoteAIHost"; StatusMsg: "서비스 시작…"; Flags: runhidden; Check: WantService
 

@@ -3,11 +3,13 @@ import { createWriteStream, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { HOST_LOCAL_PORT } from '@remoteai/protocol'
-import type { HostConfig } from './config.js'
+import { isPackaged, type HostConfig } from './config.js'
 import { isLocalHub, lanUrls } from './net.js'
 import { setClipboardFiles } from './clipboard.js'
 import { sendMagic } from './wol.js'
 import { log, recentHostLogs } from './log.js'
+import { canSelfUpdate, checkForUpdate, downloadAndUpdate, lastUpdateInfo, uninstallHost } from './update.js'
+import { installedVersion } from './version.js'
 
 export type LocalState = {
   cfg: () => HostConfig
@@ -59,6 +61,9 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         accountUser: cfg.accountUser || null,
         hub: isLocalHub(cfg.serverUrl),
         hubUrls: lanUrls(),
+        version: installedVersion(),
+        packaged: isPackaged() || canSelfUpdate(),
+        update: lastUpdateInfo(),
       })
       return
     }
@@ -95,6 +100,48 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         const r = await state.login(String(b.username || ''), String(b.password || ''), b.totp)
         json(res, r)
       })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/check-update') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      const cfg = state.cfg()
+      void checkForUpdate(cfg.serverUrl, cfg.updateSnoozeUntil, cfg.snoozedVersion).then((u) => json(res, { ok: true, update: u }))
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/snooze-update') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      const u = lastUpdateInfo()
+      state.save({ updateSnoozeUntil: Date.now() + 7 * 24 * 3600 * 1000, snoozedVersion: u.latest })
+      void checkForUpdate(state.cfg().serverUrl, Date.now() + 7 * 24 * 3600 * 1000, u.latest)
+      json(res, { ok: true })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/update') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      json(res, { ok: true, message: '설치 파일을 받은 뒤 호스트를 다시 시작합니다.' })
+      void downloadAndUpdate(state.cfg().serverUrl).catch((e) => log('update', e))
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/local/uninstall') {
+      if (!allow) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      json(res, { ok: true, message: '이 컴퓨터에서 호스트를 제거합니다.' })
+      uninstallHost()
       return
     }
     if (req.method === 'POST' && url.pathname === '/local/logout') {

@@ -14,6 +14,7 @@ import {
   type QualitySettings,
 } from '@remoteai/protocol'
 import { loadConfig, saveConfig } from './config.js'
+import { checkForUpdate } from './update.js'
 import { log } from './log.js'
 import { captureFrame, listDisplays } from './capture.js'
 import { handleKey, handleMouse, handleSpecial, handleText } from './input.js'
@@ -128,13 +129,29 @@ startLocalApi({
 })
 
 if (cfg.autoStart) setAutoStart(true)
+void checkForUpdate(cfg.serverUrl, cfg.updateSnoozeUntil, cfg.snoozedVersion)
+setInterval(
+  () => void checkForUpdate(cfg.serverUrl, cfg.updateSnoozeUntil, cfg.snoozedVersion),
+  6 * 3600 * 1000,
+)
 try {
   startSsh({ password: cfg.password, lan: cfg.sshLan })
 } catch (e) {
   log('ssh start failed', e)
 }
 initClipboardSeq()
-void startTray({ deviceId: () => deviceId, password: () => cfg.password, openUi })
+void startTray({
+  deviceId: () => deviceId,
+  password: () => cfg.password,
+  openUi,
+  checkUpdate: () => {
+    void checkForUpdate(cfg.serverUrl, cfg.updateSnoozeUntil, cfg.snoozedVersion)
+    openUi()
+  },
+  doUpdate: () => {
+    void import('./update.js').then((m) => m.downloadAndUpdate(cfg.serverUrl)).catch((e) => log('update', e))
+  },
+})
 
 async function captureLoop() {
   if (capturing) return

@@ -215,6 +215,14 @@ app.get('/api/ice', (_req, res) => {
   res.json({ iceServers: iceServers() })
 })
 
+app.get('/api/version', (_req, res) => {
+  res.json({
+    version: process.env.APP_VERSION || '0.1.2',
+    setupUrl: '/RemoteAI-Setup.exe',
+    macUrl: '/RemoteAI-Mac.zip',
+  })
+})
+
 app.get('/api/health', (_req, res) => {
   const lan = lanIps()
   const pub = publicBase()
