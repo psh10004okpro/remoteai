@@ -316,7 +316,10 @@ export default function Home() {
                       {local.accountUser ? '공유 중' : local.online ? '호스트 실행 중' : '오프라인'}
                     </span>
                     <p className="hint" style={{ marginTop: 10 }}>{local.hostname}</p>
-                    <Link className="btn" to="/host">설정</Link>
+                    {!local.accountUser && (
+                      <p className="hint">아직 계정에 안 묶여 「내 컴퓨터」에 안 보입니다. 설정에서 같은 아이디로 연결하세요.</p>
+                    )}
+                    <Link className="btn" to="/host">{local.accountUser ? '설정' : '이 컴퓨터 계정에 연결'}</Link>
                   </>
                 ) : (
                   <>

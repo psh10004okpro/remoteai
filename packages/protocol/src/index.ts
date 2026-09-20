@@ -73,8 +73,8 @@ export type QualitySettings = {
 }
 
 export const DEFAULT_QUALITY: QualitySettings = {
-  fps: 12,
-  jpegQuality: 55,
+  fps: 18,
+  jpegQuality: 60,
   maxWidth: 1600,
 }
 

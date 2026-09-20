@@ -27,7 +27,7 @@ export function startH264(onFrame: (buf: Buffer) => void, onFail?: (err: string)
       '-f',
       process.platform === 'darwin' ? 'avfoundation' : 'gdigrab',
       '-framerate',
-      '15',
+      '20',
       '-i',
       process.platform === 'darwin' ? '1:none' : 'desktop',
       '-vf',

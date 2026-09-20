@@ -82,6 +82,10 @@ export default function Session() {
   const recChunks = useRef<Blob[]>([])
   const retryRef = useRef(0)
   const alive = useRef(true)
+  const reconnecting = useRef(false)
+  const jpegBusy = useRef(false)
+  const jpegLatest = useRef<{ u8: Uint8Array; w: number; h: number } | null>(null)
+  const lastMove = useRef(0)
   const msgHandler = useRef<(ev: MessageEvent) => void>(() => undefined)
 
   const [deviceId] = useState(() => params.get('id') || takePendingSession())
@@ -98,21 +102,45 @@ export default function Session() {
     if (ws && ws.readyState === 1) ws.send(data)
   }
 
+  function sendAuth(ws?: WebSocket) {
+    const s = ws || sockRef.current
+    if (!s || s.readyState !== 1) return
+    if (code) s.send(JSON.stringify({ type: 'viewer.authCode', code }))
+    else
+      s.send(
+        JSON.stringify({
+          type: 'viewer.auth',
+          deviceId,
+          password: password || undefined,
+          accountToken: accountToken || undefined,
+        }),
+      )
+    s.send(JSON.stringify({ type: 'session.fit', width: window.innerWidth, height: window.innerHeight }))
+  }
+
   function connectWs() {
+    const prev = sockRef.current
+    sockRef.current = null
+    try {
+      prev?.close()
+    } catch {
+      /* ignore */
+    }
     const ws = new WebSocket(wsUrl())
     ws.binaryType = 'arraybuffer'
     sockRef.current = ws
     ws.onopen = () => {
       retryRef.current = 0
+      reconnecting.current = false
       setReconnect(false)
       setStatus('인증 중…')
-      if (code) send({ type: 'viewer.authCode', code })
-      else send({ type: 'viewer.auth', deviceId, password: password || undefined, accountToken: accountToken || undefined })
-      send({ type: 'session.fit', width: window.innerWidth, height: window.innerHeight })
+      sendAuth(ws)
     }
     ws.onclose = () => {
+      if (sockRef.current !== ws) return
       setStatus('연결 종료')
       if (!alive.current) return
+      reconnecting.current = true
       setReconnect(true)
       const wait = Math.min(8000, 800 * 2 ** retryRef.current++)
       setTimeout(() => {
@@ -145,6 +173,8 @@ export default function Session() {
           }).catch(() => undefined)
           break
         case 'viewer.welcome':
+          reconnecting.current = false
+          setReconnect(false)
           setStatus(`${msg.name} 연결됨`)
           setName(msg.name)
           setDisplays(msg.displays)
@@ -152,15 +182,33 @@ export default function Session() {
           clearPendingSession()
           break
         case 'viewer.denied':
-          setStatus(msg.message)
-          void reportClientError('session', 'viewer.denied: ' + msg.message)
+          if (msg.message.includes('온라인이 아닙니다')) {
+            reconnecting.current = true
+            setReconnect(true)
+            setStatus('컴퓨터가 아직 꺼져 있습니다. 다시 연결 중…')
+            window.setTimeout(() => {
+              if (alive.current) sendAuth()
+            }, 2500)
+          } else {
+            setStatus(msg.message)
+            void reportClientError('session', 'viewer.denied: ' + msg.message)
+          }
           break
         case 'session.end':
-          setStatus(msg.reason)
-          void reportClientError('session', 'session.end: ' + msg.reason)
+          reconnecting.current = true
+          setReconnect(true)
+          setStatus(msg.reason + ' · 다시 연결 중…')
+          window.setTimeout(() => {
+            if (alive.current) sendAuth()
+          }, 1500)
           break
         case 'display.list':
           setDisplays(msg.displays)
+          if (reconnecting.current) {
+            reconnecting.current = false
+            setReconnect(false)
+            setStatus('다시 연결됨')
+          }
           break
         case 'clipboard.text':
           if (msg.origin === 'host') {
@@ -271,6 +319,11 @@ export default function Session() {
   }, [deviceId, password, code, accountToken])
 
   function handleBin(buf: Uint8Array) {
+    if (reconnecting.current) {
+      reconnecting.current = false
+      setReconnect(false)
+      setStatus('다시 연결됨')
+    }
     if (buf[0] === BINARY.JPEG) {
       const frame = decodeJpegFrame(buf)
       if (frame) drawJpeg(frame.jpeg, frame.width, frame.height)
@@ -382,16 +435,34 @@ export default function Session() {
 
   function drawJpeg(jpeg: Uint8Array, w: number, h: number) {
     frameSize.current = { w, h }
-    const blob = new Blob([jpeg], { type: 'image/jpeg' })
-    createImageBitmap(blob).then((bmp) => {
-      const c = canvasRef.current
-      if (!c) return
-      if (c.width !== bmp.width) c.width = bmp.width
-      if (c.height !== bmp.height) c.height = bmp.height
-      const ctx = c.getContext('2d')
-      ctx?.drawImage(bmp, 0, 0)
-      bmp.close()
-    })
+    jpegLatest.current = { u8: jpeg.slice(), w, h }
+    if (jpegBusy.current) return
+    jpegBusy.current = true
+    const pump = () => {
+      const job = jpegLatest.current
+      if (!job) {
+        jpegBusy.current = false
+        return
+      }
+      jpegLatest.current = null
+      createImageBitmap(new Blob([job.u8], { type: 'image/jpeg' }))
+        .then((bmp) => {
+          const c = canvasRef.current
+          if (c) {
+            if (c.width !== bmp.width) c.width = bmp.width
+            if (c.height !== bmp.height) c.height = bmp.height
+            const ctx = c.getContext('2d', { alpha: false })
+            ctx?.drawImage(bmp, 0, 0)
+          }
+          bmp.close()
+          if (jpegLatest.current) pump()
+          else jpegBusy.current = false
+        })
+        .catch(() => {
+          jpegBusy.current = false
+        })
+    }
+    pump()
   }
 
   function pos(e: { clientX: number; clientY: number }) {
@@ -405,7 +476,11 @@ export default function Session() {
     if (viewOnly || touchpad) return
     const p = pos(e)
     if (!p) return
-    if (action !== 'move') e.preventDefault()
+    if (action === 'move') {
+      const n = Date.now()
+      if (n - lastMove.current < 24) return
+      lastMove.current = n
+    } else e.preventDefault()
     send({ type: 'input.mouse', action, nx: p.nx, ny: p.ny, button: e.button, displayId })
   }
 

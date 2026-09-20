@@ -147,8 +147,10 @@ async function captureLoop() {
         continue
       }
       if (autoQuality) {
-        if (ws && ws.bufferedAmount > 800_000) quality = { ...quality, fps: 6, jpegQuality: 40 }
-        else quality = { ...quality, fps: 12, jpegQuality: 55 }
+        const buf = ws?.bufferedAmount || 0
+        if (buf > 800_000) quality = { ...quality, fps: 8, jpegQuality: 42 }
+        else if (buf > 250_000) quality = { ...quality, fps: 12, jpegQuality: 52 }
+        else quality = { ...quality, fps: 18, jpegQuality: 62 }
       }
       if (ws && ws.bufferedAmount < 2_000_000) {
         const frame = await captureFrame(displayId, quality)

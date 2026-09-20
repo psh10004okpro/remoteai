@@ -693,6 +693,19 @@ async function handleJson(client: Client, msg: Msg) {
       room.capabilities = msg.capabilities
       send(client.ws, { type: 'host.welcome', deviceId: id, token: token!, accountUser: account?.username })
       broadcastViewers(room, { type: 'display.list', displays: msg.displays })
+      if (room.viewers.size > 0) {
+        send(client.ws, { type: 'viewer.count', n: room.viewers.size })
+        for (const v of room.viewers.values()) {
+          send(v.ws, {
+            type: 'viewer.welcome',
+            deviceId: id,
+            name: room.name,
+            displays: msg.displays,
+            capabilities: msg.capabilities as never,
+            quality: room.quality,
+          })
+        }
+      }
       return
     }
     case 'viewer.auth': {
