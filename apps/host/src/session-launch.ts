@@ -7,30 +7,11 @@ const advapi32 = koffi.load('advapi32.dll')
 const wtsapi32 = koffi.load('wtsapi32.dll')
 const userenv = koffi.load('userenv.dll')
 
-const GetCurrentProcessId = kernel32.func('uint32 __stdcall GetCurrentProcessId()')
-const ProcessIdToSessionId = kernel32.func('bool __stdcall ProcessIdToSessionId(uint32, _Out_ uint32 *)')
-const WTSGetActiveConsoleSessionId = kernel32.func('uint32 __stdcall WTSGetActiveConsoleSessionId()')
-const OpenProcess = kernel32.func('void * __stdcall OpenProcess(uint32, bool, uint32)')
-const CloseHandle = kernel32.func('bool __stdcall CloseHandle(void *)')
-const GetLastError = kernel32.func('uint32 __stdcall GetLastError()')
-const CreateToolhelp32Snapshot = kernel32.func('void * __stdcall CreateToolhelp32Snapshot(uint32, uint32)')
-const Process32FirstW = kernel32.func('bool __stdcall Process32FirstW(void *, void *)')
-const Process32NextW = kernel32.func('bool __stdcall Process32NextW(void *, void *)')
-
-const WTSQueryUserToken = wtsapi32.func('bool __stdcall WTSQueryUserToken(uint32, _Out_ void **)')
-const OpenProcessToken = advapi32.func('bool __stdcall OpenProcessToken(void *, uint32, _Out_ void **)')
-const DuplicateTokenEx = advapi32.func('bool __stdcall DuplicateTokenEx(void *, uint32, void *, int, int, _Out_ void **)')
-const CreateProcessAsUserW = advapi32.func(
-  'bool __stdcall CreateProcessAsUserW(void *, str16, void *, void *, void *, bool, uint32, void *, str16, void *, void *)',
-)
-const CreateEnvironmentBlock = userenv.func('bool __stdcall CreateEnvironmentBlock(_Out_ void **, void *, bool)')
-const DestroyEnvironmentBlock = userenv.func('bool __stdcall DestroyEnvironmentBlock(void *)')
-
 const STARTUPINFOW = koffi.struct('STARTUPINFOW', {
   cb: 'uint32',
   lpReserved: 'void *',
-  lpDesktop: 'void *',
-  lpTitle: 'void *',
+  lpDesktop: 'str16',
+  lpTitle: 'str16',
   dwX: 'uint32',
   dwY: 'uint32',
   dwXSize: 'uint32',
@@ -67,6 +48,25 @@ const PROCESSENTRY32W = koffi.struct('PROCESSENTRY32W', {
   szExeFile: koffi.array('uint16', 260),
 })
 
+const GetCurrentProcessId = kernel32.func('uint32 __stdcall GetCurrentProcessId()')
+const ProcessIdToSessionId = kernel32.func('bool __stdcall ProcessIdToSessionId(uint32, _Out_ uint32 *)')
+const WTSGetActiveConsoleSessionId = kernel32.func('uint32 __stdcall WTSGetActiveConsoleSessionId()')
+const OpenProcess = kernel32.func('void * __stdcall OpenProcess(uint32, bool, uint32)')
+const CloseHandle = kernel32.func('bool __stdcall CloseHandle(void *)')
+const GetLastError = kernel32.func('uint32 __stdcall GetLastError()')
+const CreateToolhelp32Snapshot = kernel32.func('void * __stdcall CreateToolhelp32Snapshot(uint32, uint32)')
+const Process32FirstW = kernel32.func('bool __stdcall Process32FirstW(void *, PROCESSENTRY32W *)')
+const Process32NextW = kernel32.func('bool __stdcall Process32NextW(void *, PROCESSENTRY32W *)')
+
+const WTSQueryUserToken = wtsapi32.func('bool __stdcall WTSQueryUserToken(uint32, _Out_ void **)')
+const OpenProcessToken = advapi32.func('bool __stdcall OpenProcessToken(void *, uint32, _Out_ void **)')
+const DuplicateTokenEx = advapi32.func('bool __stdcall DuplicateTokenEx(void *, uint32, void *, int, int, _Out_ void **)')
+const CreateProcessAsUserW = advapi32.func(
+  'bool __stdcall CreateProcessAsUserW(void *hToken, str16 lpApplicationName, str16 lpCommandLine, void *lpProcessAttributes, void *lpThreadAttributes, bool bInheritHandles, uint32 dwCreationFlags, void *lpEnvironment, str16 lpCurrentDirectory, STARTUPINFOW *lpStartupInfo, _Out_ PROCESS_INFORMATION *lpProcessInformation)',
+)
+const CreateEnvironmentBlock = userenv.func('bool __stdcall CreateEnvironmentBlock(_Out_ void **, void *, bool)')
+const DestroyEnvironmentBlock = userenv.func('bool __stdcall DestroyEnvironmentBlock(void *)')
+
 const TH32CS_SNAPPROCESS = 0x00000002
 const PROCESS_QUERY_INFORMATION = 0x0400
 const TOKEN_DUPLICATE = 0x0002
@@ -92,11 +92,6 @@ export function currentSessionId() {
 
 export function activeConsoleSessionId() {
   return WTSGetActiveConsoleSessionId() as number
-}
-
-function widePtr(text: string) {
-  const buf = Buffer.from(text + '\0', 'utf16le')
-  return buf
 }
 
 function exeName(entry: { szExeFile: number[] }) {
@@ -178,62 +173,65 @@ function tokenForSession(sessionId: number): { token: unknown; desktop: string }
 }
 
 export function launchInSession(opts: { sessionId: number; exe: string; args: string[]; cwd: string }) {
-  const got = tokenForSession(opts.sessionId)
-  if (!got) return 0
-  const env: unknown[] = [null]
-  CreateEnvironmentBlock(env, got.token, false)
-  const desktop = widePtr(got.desktop)
-  const si = {
-    cb: koffi.sizeof(STARTUPINFOW),
-    lpReserved: null,
-    lpDesktop: desktop,
-    lpTitle: null,
-    dwX: 0,
-    dwY: 0,
-    dwXSize: 0,
-    dwYSize: 0,
-    dwXCountChars: 0,
-    dwYCountChars: 0,
-    dwFillAttribute: 0,
-    dwFlags: STARTF_USESHOWWINDOW,
-    wShowWindow: SW_HIDE,
-    cbReserved2: 0,
-    lpReserved2: null,
-    hStdInput: null,
-    hStdOutput: null,
-    hStdError: null,
-  }
-  const pi = {
-    hProcess: null,
-    hThread: null,
-    dwProcessId: 0,
-    dwThreadId: 0,
-  }
-  const quoted = [opts.exe, ...opts.args].map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')
-  const cmdBuf = Buffer.from(quoted + '\0', 'utf16le')
-  const ok = CreateProcessAsUserW(
-    got.token,
-    opts.exe,
-    cmdBuf,
-    null,
-    null,
-    false,
-    CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP,
-    env[0] || null,
-    opts.cwd,
-    si,
-    pi,
-  )
-  if (env[0]) DestroyEnvironmentBlock(env[0])
-  CloseHandle(got.token)
-  if (!ok) {
-    log('CreateProcessAsUser failed', GetLastError(), 'desktop', got.desktop, 'session', opts.sessionId)
+  try {
+    const got = tokenForSession(opts.sessionId)
+    if (!got) return 0
+    const env: unknown[] = [null]
+    CreateEnvironmentBlock(env, got.token, false)
+    const si = {
+      cb: koffi.sizeof(STARTUPINFOW),
+      lpReserved: null,
+      lpDesktop: got.desktop,
+      lpTitle: null,
+      dwX: 0,
+      dwY: 0,
+      dwXSize: 0,
+      dwYSize: 0,
+      dwXCountChars: 0,
+      dwYCountChars: 0,
+      dwFillAttribute: 0,
+      dwFlags: STARTF_USESHOWWINDOW,
+      wShowWindow: SW_HIDE,
+      cbReserved2: 0,
+      lpReserved2: null,
+      hStdInput: null,
+      hStdOutput: null,
+      hStdError: null,
+    }
+    const pi = {
+      hProcess: null,
+      hThread: null,
+      dwProcessId: 0,
+      dwThreadId: 0,
+    }
+    const quoted = [opts.exe, ...opts.args].map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')
+    const ok = CreateProcessAsUserW(
+      got.token,
+      opts.exe,
+      quoted,
+      null,
+      null,
+      false,
+      CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP,
+      env[0] || null,
+      opts.cwd,
+      si,
+      pi,
+    )
+    if (env[0]) DestroyEnvironmentBlock(env[0])
+    CloseHandle(got.token)
+    if (!ok) {
+      log('CreateProcessAsUser failed', GetLastError(), 'desktop', got.desktop, 'session', opts.sessionId)
+      return 0
+    }
+    if (pi.hThread) CloseHandle(pi.hThread)
+    if (pi.hProcess) CloseHandle(pi.hProcess)
+    log('launched session helper', pi.dwProcessId, 'session', opts.sessionId, got.desktop)
+    return pi.dwProcessId as number
+  } catch (e) {
+    log('launchInSession', e)
     return 0
   }
-  if (pi.hThread) CloseHandle(pi.hThread)
-  if (pi.hProcess) CloseHandle(pi.hProcess)
-  log('launched session helper', pi.dwProcessId, 'session', opts.sessionId, got.desktop)
-  return pi.dwProcessId as number
 }
 
 function alive(pid: number) {
@@ -256,20 +254,25 @@ export async function watchInteractiveSession() {
   let child = 0
   let lastSid = -1
   const tick = () => {
-    const sid = activeConsoleSessionId()
-    if (sid === 0xffffffff) return
-    if (child && alive(child) && sid === lastSid) return
-    if (child && alive(child)) {
-      try {
-        process.kill(child)
-      } catch {
-        /* ignore */
+    try {
+      const sid = activeConsoleSessionId()
+      if (sid === 0xffffffff) return
+      if (child && alive(child) && sid === lastSid) return
+      if (child && alive(child)) {
+        try {
+          process.kill(child)
+        } catch {
+          /* ignore */
+        }
+        spawn('taskkill', ['/PID', String(child), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+        child = 0
       }
-      spawn('taskkill', ['/PID', String(child), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      lastSid = sid
+      child = launchInSession({ sessionId: sid, exe, args, cwd })
+    } catch (e) {
+      log('session tick', e)
       child = 0
     }
-    lastSid = sid
-    child = launchInSession({ sessionId: sid, exe, args, cwd })
   }
   tick()
   for (;;) {

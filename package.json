@@ -1,7 +1,7 @@
 {
   "name": "remoteai",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Chrome Remote Desktop-like access with file clipboard, SSH, and AI control",
   "workspaces": [
     "apps/*",

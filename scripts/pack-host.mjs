@@ -14,7 +14,7 @@ if (!existsSync(hostJs)) {
 rmSync(out, { recursive: true, force: true })
 mkdirSync(path.join(out, 'app'), { recursive: true })
 cpSync(hostJs, path.join(out, 'app', 'index.js'))
-writeFileSync(path.join(out, 'VERSION'), '0.1.2\n')
+writeFileSync(path.join(out, 'VERSION'), '0.1.3\n')
 cpSync(process.execPath, path.join(out, 'node.exe'))
 copyFfmpeg(out)
 copyWinsw(out)
@@ -119,7 +119,12 @@ writeFileSync(
     '  & $exe uninstall 2>$null',
     '  & $exe install',
     '  Start-Service RemoteAIHost',
+    "  $sysDir = Join-Path $env:WINDIR 'System32\\config\\systemprofile\\AppData\\Roaming\\RemoteAI'",
+    '  New-Item -ItemType Directory -Force -Path $sysDir | Out-Null',
+    "  $userCfg = Join-Path $env:APPDATA 'RemoteAI\\config.json'",
+    '  if (Test-Path $userCfg) { Copy-Item $userCfg (Join-Path $sysDir \'config.json\') -Force }',
     "  Write-Host 'Windows 서비스로 설치했습니다. 부팅·로그인 화면부터 대기합니다.'",
+    "  Write-Host 'SYSTEM 프로필에 config.json 을 복사했습니다. 허브에 안 뜨면 그 파일을 확인하세요.'",
     '} else {',
     '  Start-Process $cmd',
     "  Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'",
@@ -170,6 +175,9 @@ H.264 화면과 소리는 이 폴더의 ffmpeg.exe 를 씁니다.
 
 잠금 화면·부팅 직후부터 열려면 "설치-서비스.cmd" 를 관리자로 실행하세요.
 UAC 창이 뜨면 예를 누르세요. 로그온 작업이 거부되면 관리자 설치가 필요합니다.
+서비스는 LocalSystem 으로 뜹니다. 허브 등록용 config.json 은
+  C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming\\RemoteAI\\config.json
+에 있어야 합니다. 설치-서비스.cmd 가 현재 사용자 설정을 그곳으로 복사합니다.
 `,
 )
 
