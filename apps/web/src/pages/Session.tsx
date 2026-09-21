@@ -86,6 +86,7 @@ export default function Session() {
   const jpegBusy = useRef(false)
   const jpegLatest = useRef<{ u8: Uint8Array; w: number; h: number } | null>(null)
   const lastMove = useRef(0)
+  const lastH264Ack = useRef(0)
   const msgHandler = useRef<(ev: MessageEvent) => void>(() => undefined)
 
   const [deviceId] = useState(() => params.get('id') || takePendingSession())
@@ -409,9 +410,14 @@ export default function Session() {
             if (c) {
               if (c.width !== frame.displayWidth) c.width = frame.displayWidth
               if (c.height !== frame.displayHeight) c.height = frame.displayHeight
-              c.getContext('2d')?.drawImage(frame, 0, 0)
+              c.getContext('2d', { alpha: false })?.drawImage(frame, 0, 0)
             }
             frame.close()
+            const n = Date.now()
+            if (n - lastH264Ack.current > 1200) {
+              lastH264Ack.current = n
+              send({ type: 'media.ack', codec: 'h264' })
+            }
           },
           error: () => {
             vdec.current = null

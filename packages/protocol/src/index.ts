@@ -114,6 +114,7 @@ export type Msg =
   | { type: 'webrtc.answer'; sdp: string }
   | { type: 'webrtc.ice'; candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }
   | { type: 'webrtc.failed' }
+  | { type: 'media.ack'; codec: 'h264' | 'jpeg' }
   | { type: 'clipboard.text'; text: string; origin: 'host' | 'viewer' }
   | { type: 'clipboard.files.offer'; origin: 'host' | 'viewer'; batchId: string; files: { name: string; size: number; relativePath: string }[] }
   | { type: 'clipboard.files.accept' }

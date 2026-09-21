@@ -52,6 +52,7 @@ let capturing = false
 let viewOnly = false
 let autoQuality = true
 let rtcOpen = false
+let h264AckAt = 0
 
 let ws: WebSocket | null = null
 let nextTransfer = 1
@@ -159,8 +160,8 @@ async function captureLoop() {
   while (viewers > 0) {
     const t0 = Date.now()
     try {
-      if (h264Running() && rtcOpen) {
-        await new Promise((r) => setTimeout(r, 200))
+      if (h264Running() && Date.now() - h264AckAt < 2500) {
+        await new Promise((r) => setTimeout(r, 80))
         continue
       }
       if (autoQuality) {
@@ -272,30 +273,44 @@ async function handle(msg: Msg) {
       }
       break
     }
+    case 'media.ack':
+      if (msg.codec === 'h264') h264AckAt = Date.now()
+      break
+    case 'webrtc.failed':
+      rtcOpen = false
+      log('webrtc failed, H.264/JPEG over websocket')
+      break
     case 'viewer.count':
       viewers = msg.n
       if (viewers > 0) {
         void captureLoop()
         notify('RemoteAI', '원격 접속이 시작되었습니다.')
+        const kickH264 = () => {
+          if (viewers <= 0) return
+          startH264(
+            (b) => sendBin(b),
+            (err) => {
+              send({ type: 'chat', from: 'system', text: err })
+              if (viewers > 0) setTimeout(kickH264, 8000)
+            },
+            quality.maxWidth,
+          )
+        }
+        if (!h264Running()) kickH264()
         void (async () => {
           const iceServers = await fetchIce(cfg.serverUrl)
           const sdp = await createOffer({
             iceServers,
             onIce: (ice) => send({ type: 'webrtc.ice', ...ice }),
             onOpen: () => {
-              if (rtcOpen) return
               rtcOpen = true
-              startH264(
-                (b) => sendBin(b),
-                (err) => send({ type: 'chat', from: 'system', text: err }),
-                quality.maxWidth,
-              )
             },
           })
           if (sdp) send({ type: 'webrtc.offer', sdp })
         })()
       } else {
         rtcOpen = false
+        h264AckAt = 0
         stopH264()
         void closeRtc()
         if (cfg.lockOnDisconnect) handleSpecial('lock')

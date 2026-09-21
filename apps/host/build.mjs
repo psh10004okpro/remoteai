@@ -7,7 +7,7 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   banner: {
-    js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+    js: "import { createRequire as __remoteaiCreateRequire } from 'node:module'; const require = __remoteaiCreateRequire(import.meta.url);",
   },
   external: ['koffi', 'node-screenshots', 'sharp', 'node-pty', 'systray2', 'ssh2', 'ws'],
 })
