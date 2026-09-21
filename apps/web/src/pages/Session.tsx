@@ -83,6 +83,7 @@ export default function Session() {
   const retryRef = useRef(0)
   const alive = useRef(true)
   const reconnecting = useRef(false)
+  const authTries = useRef(0)
   const jpegBusy = useRef(false)
   const jpegLatest = useRef<{ u8: Uint8Array; w: number; h: number } | null>(null)
   const lastMove = useRef(0)
@@ -101,6 +102,14 @@ export default function Session() {
   function sendBin(data: Uint8Array) {
     const ws = sockRef.current
     if (ws && ws.readyState === 1) ws.send(data)
+  }
+
+  async function waitSend() {
+    const ws = sockRef.current
+    if (!ws) return
+    while (ws.readyState === 1 && ws.bufferedAmount > 1_500_000) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
   }
 
   function sendAuth(ws?: WebSocket) {
@@ -175,6 +184,7 @@ export default function Session() {
           break
         case 'viewer.welcome':
           reconnecting.current = false
+          authTries.current = 0
           setReconnect(false)
           setStatus(`${msg.name} 연결됨`)
           setName(msg.name)
@@ -184,6 +194,13 @@ export default function Session() {
           break
         case 'viewer.denied':
           if (msg.message.includes('온라인이 아닙니다')) {
+            authTries.current += 1
+            if (authTries.current > 24) {
+              reconnecting.current = false
+              setReconnect(false)
+              setStatus('컴퓨터가 오프라인입니다. 목록에서 다시 접속하세요.')
+              break
+            }
             reconnecting.current = true
             setReconnect(true)
             setStatus('컴퓨터가 아직 꺼져 있습니다. 다시 연결 중…')
@@ -196,6 +213,13 @@ export default function Session() {
           }
           break
         case 'session.end':
+          authTries.current += 1
+          if (authTries.current > 40) {
+            reconnecting.current = false
+            setReconnect(false)
+            setStatus(msg.reason + ' · 재시도 한도를 넘었습니다.')
+            break
+          }
           reconnecting.current = true
           setReconnect(true)
           setStatus(msg.reason + ' · 다시 연결 중…')
@@ -605,18 +629,33 @@ export default function Session() {
       const id = transferId.current++
       const rel = relative[i] || f.name
       send({ type: 'file.start', transferId: id, name: f.name, size: f.size, relativePath: rel, origin: 'viewer', batchId })
-      const buf = new Uint8Array(await f.arrayBuffer())
       let seq = 0
-      for (let off = 0; off < buf.length; off += FILE_CHUNK_SIZE) {
-        const slice = buf.subarray(off, off + FILE_CHUNK_SIZE)
-        sendBin(encodeFileChunk(id, seq++, off + FILE_CHUNK_SIZE >= buf.length, slice))
-        done += slice.length
-        if (seq % 4 === 0 || off + FILE_CHUNK_SIZE >= buf.length) {
-          send({ type: 'file.progress', transferId: id, sent: off + slice.length, total: buf.length || 1 })
-          setProgress({ sent: done, total: grand })
+      let sentFile = 0
+      const reader = f.stream().getReader()
+      let leftover = new Uint8Array(0)
+      for (;;) {
+        const { done: eof, value } = await reader.read()
+        if (eof) break
+        const next = new Uint8Array(leftover.length + value.length)
+        next.set(leftover)
+        next.set(value, leftover.length)
+        leftover = next
+        while (leftover.length >= FILE_CHUNK_SIZE) {
+          const slice = leftover.subarray(0, FILE_CHUNK_SIZE)
+          leftover = leftover.subarray(FILE_CHUNK_SIZE)
+          await waitSend()
+          sentFile += slice.length
+          done += slice.length
+          sendBin(encodeFileChunk(id, seq++, false, slice))
+          if (seq % 4 === 0) {
+            send({ type: 'file.progress', transferId: id, sent: sentFile, total: f.size || 1 })
+            setProgress({ sent: done, total: grand })
+          }
         }
       }
-      if (buf.length === 0) sendBin(encodeFileChunk(id, 0, true, new Uint8Array()))
+      await waitSend()
+      sendBin(encodeFileChunk(id, seq, true, leftover))
+      if (f.size === 0 && seq === 0) sendBin(encodeFileChunk(id, 0, true, new Uint8Array()))
       send({ type: 'file.end', transferId: id, origin: 'viewer', batchId })
     }
     send({ type: 'clipboard.files.complete', origin: 'viewer', batchId })
@@ -848,6 +887,7 @@ export default function Session() {
             onMouseUp={(e) => onMouse(e, 'up')}
             onContextMenu={(e) => e.preventDefault()}
             onWheel={(e) => {
+              if (viewOnly) return
               e.preventDefault()
               const p = pos(e)
               send({ type: 'input.mouse', action: 'wheel', dy: e.deltaY, nx: p?.nx, ny: p?.ny, displayId })

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, postLocal, type LocalHostInfo } from '../lib/ws'
 import {
   api,
   clearSession,
@@ -321,12 +321,52 @@ export default function Home() {
                     )}
                     {local.update?.available && !local.update.snoozed && (
                       <p className="hint" style={{ marginTop: 10 }}>
-                        새 버전 {local.update.latest}이 있습니다.{' '}
-                        <Link to="/host">지금 업데이트</Link>
-                        하거나 그대로 써도 됩니다. 올리면 연결 설정은 유지됩니다.
+                        새 버전 {local.update.latest}이 있습니다. 버튼을 눌러 올리거나, 지금은 그대로 쓰세요. 설정은 유지됩니다.
                       </p>
                     )}
-                    <Link className="btn" to="/host">{local.accountUser ? '설정' : '이 컴퓨터 계정에 연결'}</Link>
+                    <div className="row" style={{ marginTop: 10 }}>
+                      <Link className="btn" to="/host">{local.accountUser ? '설정' : '이 컴퓨터 계정에 연결'}</Link>
+                      <button
+                        className="btn ghost"
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const r = await postLocal('/check-update')
+                            const u = r.update
+                            if (u?.available && !u.snoozed) {
+                              setFlashBad(false)
+                              setFlash(`새 버전 ${u.latest}입니다. 「지금 업데이트」를 누르면 설치됩니다.`)
+                              await refresh()
+                            } else {
+                              setFlashBad(false)
+                              setFlash(`최신입니다. (${u?.current || local.version || ''})`)
+                            }
+                          } catch (e) {
+                            setFlashBad(true)
+                            setFlash(e instanceof Error ? e.message : String(e))
+                          }
+                        }}
+                      >
+                        업데이트 확인
+                      </button>
+                      <button
+                        className="btn ghost"
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm('업데이트를 설치할까요? 호스트가 잠깐 꺼졌다가 같은 설정으로 다시 붙습니다. 지금은 취소하면 그대로 씁니다.')) return
+                          try {
+                            const r = await postLocal('/update')
+                            setFlashBad(false)
+                            setFlash(r.message || '업데이트를 시작했습니다. 잠시 후 호스트가 다시 켜집니다.')
+                          } catch (e) {
+                            setFlashBad(true)
+                            setFlash(e instanceof Error ? e.message : String(e))
+                          }
+                        }}
+                      >
+                        지금 업데이트
+                      </button>
+                    </div>
                   </>
                 ) : (
                   <>

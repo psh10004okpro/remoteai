@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatDeviceId } from '@remoteai/protocol'
-import { fetchLocalHost, fetchLocalPin, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, type LocalHostInfo } from '../lib/ws'
+import { fetchLocalHost, fetchLocalPin, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, postLocal, type LocalHostInfo } from '../lib/ws'
 
 export default function Host() {
   const [info, setInfo] = useState<LocalHostInfo | null>(null)
@@ -281,8 +281,7 @@ function HostUpdate({ info, onBusy }: { info: LocalHostInfo; onBusy: (s: string)
   const [available, setAvailable] = useState(!!(info.update?.available && !info.update?.snoozed))
   const [busy, setBusy] = useState('')
   async function check() {
-    const r = await fetch(localHostUrl() + '/check-update', { method: 'POST' })
-    const b = (await r.json()) as { update?: LocalHostInfo['update'] }
+    const b = await postLocal('/check-update')
     const u = b.update
     setLatest(u?.latest || '')
     setAvailable(!!(u?.available && !u?.snoozed))
@@ -315,9 +314,8 @@ function HostUpdate({ info, onBusy }: { info: LocalHostInfo; onBusy: (s: string)
             setBusy('update')
             onBusy('설치 파일을 받는 중입니다. 끝나면 호스트가 자동으로 다시 켜집니다.')
             try {
-              const r = await fetch(localHostUrl() + '/update', { method: 'POST' })
-              const b = await r.json().catch(() => ({}))
-              onBusy((b as { message?: string }).message || '업데이트를 시작했습니다.')
+              const r = await postLocal('/update')
+              onBusy(r.message || '업데이트를 시작했습니다.')
             } catch (e) {
               onBusy(e instanceof Error ? e.message : String(e))
             }
@@ -332,7 +330,7 @@ function HostUpdate({ info, onBusy }: { info: LocalHostInfo; onBusy: (s: string)
             type="button"
             disabled={!!busy}
             onClick={async () => {
-              await fetch(localHostUrl() + '/snooze-update', { method: 'POST' })
+              await postLocal('/snooze-update')
               setAvailable(false)
               onBusy('지금은 그대로 씁니다. 7일 뒤 또는 다음 확인 때 다시 알려 드립니다.')
             }}
@@ -348,7 +346,7 @@ function HostUpdate({ info, onBusy }: { info: LocalHostInfo; onBusy: (s: string)
             if (!confirm('이 컴퓨터에서 RemoteAI 호스트를 제거할까요?')) return
             setBusy('uninstall')
             try {
-              await fetch(localHostUrl() + '/uninstall', { method: 'POST' })
+              await postLocal('/uninstall')
               onBusy('제거를 시작했습니다.')
             } catch (e) {
               onBusy(e instanceof Error ? e.message : String(e))

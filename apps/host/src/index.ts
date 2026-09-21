@@ -230,6 +230,9 @@ async function streamFile(transferId: number, filePath: string, batchId?: string
   let seq = 0
   let sent = 0
   for await (const chunk of stream) {
+    while (ws && ws.bufferedAmount > 1_500_000) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
     const buf = chunk as Buffer
     sendBin(encodeFileChunk(transferId, seq++, false, buf))
     sent += buf.length

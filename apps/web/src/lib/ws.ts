@@ -12,6 +12,13 @@ export function localHostUrl() {
   return `http://127.0.0.1:${HOST_LOCAL_PORT}/local`
 }
 
+export async function postLocal(path: string) {
+  const r = await fetch(localHostUrl() + path, { method: 'POST' })
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error((body as { error?: string }).error || '호스트에 연결하지 못했습니다.')
+  return body as { ok?: boolean; message?: string; update?: LocalHostInfo['update'] }
+}
+
 export type LocalHostInfo = {
   deviceId: string
   password?: string
