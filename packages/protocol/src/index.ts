@@ -73,9 +73,9 @@ export type QualitySettings = {
 }
 
 export const DEFAULT_QUALITY: QualitySettings = {
-  fps: 18,
-  jpegQuality: 60,
-  maxWidth: 1600,
+  fps: 20,
+  jpegQuality: 55,
+  maxWidth: 1280,
 }
 
 export type DiskStat = { mount: string; used: number; total: number }

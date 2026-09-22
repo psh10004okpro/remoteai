@@ -42,9 +42,22 @@ writeFileSync(
   [
     '@echo off',
     'cd /d "%~dp0"',
-    'set REMOTEAI_PACKAGED=1',
-    'set REMOTEAI_HOME=%~dp0',
-    'start "" "%~dp0node.exe" "%~dp0app\\index.js" %*',
+    'wscript.exe "%~dp0RemoteAI.vbs" %*',
+    '',
+  ].join('\r\n'),
+)
+writeFileSync(
+  path.join(out, 'RemoteAI.vbs'),
+  [
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'dir = fso.GetParentFolderName(WScript.ScriptFullName)',
+    'sh.CurrentDirectory = dir',
+    'sh.Environment("Process")("REMOTEAI_PACKAGED") = "1"',
+    'sh.Environment("Process")("REMOTEAI_HOME") = dir',
+    'args = ""',
+    'If WScript.Arguments.Count > 0 Then args = " " & WScript.Arguments.Item(0)',
+    'sh.Run """" & dir & "\\node.exe"" """ & dir & "\\app\\index.js""" & args, 0, False',
     '',
   ].join('\r\n'),
 )
@@ -83,7 +96,7 @@ writeFileSync(
     "Get-ChildItem $src -Force | Where-Object { $_.Name -notin @('install.ps1','설치.cmd','설치-서비스.cmd') } | ForEach-Object {",
     '  Copy-Item $_.FullName -Destination $dest -Recurse -Force',
     '}',
-    "$cmd = Join-Path $dest 'RemoteAI.cmd'",
+    "$cmd = Join-Path $dest 'RemoteAI.vbs'",
     "$w = New-Object -ComObject WScript.Shell",
     "$desk = $w.SpecialFolders('Desktop')",
     "$sc = $w.CreateShortcut((Join-Path $desk 'RemoteAI.lnk'))",
@@ -126,8 +139,8 @@ writeFileSync(
     "  Write-Host 'Windows 서비스로 설치했습니다. 부팅·로그인 화면부터 대기합니다.'",
     "  Write-Host 'SYSTEM 프로필에 config.json 을 복사했습니다. 허브에 안 뜨면 그 파일을 확인하세요.'",
     '} else {',
-    '  Start-Process $cmd',
-    "  Write-Host '설치했습니다. 브라우저에서 같은 아이디로 로그인하면 이 PC가 목록에 올라갑니다.'",
+    '  Start-Process -FilePath wscript.exe -ArgumentList $cmd',
+    "  Write-Host '설치했습니다. 트레이에 RemoteAI가 뜹니다. 처음이면 브라우저에서 같은 아이디로 로그인하세요.'",
     '}',
     'Write-Host $dest',
     '',
@@ -172,6 +185,9 @@ writeFileSync(
 
 같은 아이디로 로그인하세요.
 H.264 화면과 소리는 이 폴더의 ffmpeg.exe 를 씁니다.
+
+Setup.exe 는 관리자 권한이 필요합니다. 설치 때 「로그인·잠금 화면에서도 대기」가 기본으로 켜져 있습니다.
+검은 명령 창은 뜨지 않고, 트레이에서만 동작합니다. 이미 로그인한 계정은 브라우저를 다시 열지 않습니다.
 
 잠금 화면·부팅 직후부터 열려면 "설치-서비스.cmd" 를 관리자로 실행하세요.
 UAC 창이 뜨면 예를 누르세요. 로그온 작업이 거부되면 관리자 설치가 필요합니다.

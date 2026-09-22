@@ -58,7 +58,7 @@ async function jpegFromRgba(rgba: Buffer, width: number, height: number, quality
   if (width > quality.maxWidth) {
     img = img.resize({ width: quality.maxWidth, withoutEnlargement: true })
   }
-  const { info, data } = await img.jpeg({ quality: quality.jpegQuality, mozjpeg: true }).toBuffer({ resolveWithObject: true })
+  const { info, data } = await img.jpeg({ quality: quality.jpegQuality, mozjpeg: false }).toBuffer({ resolveWithObject: true })
   return { jpeg: data, width: info.width, height: info.height }
 }
 

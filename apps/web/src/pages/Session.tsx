@@ -115,6 +115,7 @@ export default function Session() {
   const jpegLatest = useRef<{ u8: Uint8Array; w: number; h: number } | null>(null)
   const lastMove = useRef(0)
   const lastH264Ack = useRef(0)
+  const lastH264Paint = useRef(0)
   const msgHandler = useRef<(ev: MessageEvent) => void>(() => undefined)
 
   const [deviceId] = useState(() => params.get('id') || takePendingSession())
@@ -394,6 +395,7 @@ export default function Session() {
       setStatus('다시 연결됨')
     }
     if (buf[0] === BINARY.JPEG) {
+      if (Date.now() - lastH264Paint.current < 700) return
       const frame = decodeJpegFrame(buf)
       if (frame) drawJpeg(frame.jpeg, frame.width, frame.height)
       return
@@ -481,6 +483,7 @@ export default function Session() {
               c.getContext('2d', { alpha: false })?.drawImage(frame, 0, 0)
             }
             frame.close()
+            lastH264Paint.current = Date.now()
             const n = Date.now()
             if (n - lastH264Ack.current > 1200) {
               lastH264Ack.current = n

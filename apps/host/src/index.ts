@@ -55,6 +55,7 @@ let viewOnly = false
 let autoQuality = true
 let rtcOpen = false
 let h264AckAt = 0
+let h264StartedAt = 0
 
 let ws: WebSocket | null = null
 let nextTransfer = 1
@@ -166,16 +167,23 @@ async function captureLoop() {
   while (viewers > 0) {
     const t0 = Date.now()
     try {
-      if (h264Running() && Date.now() - h264AckAt < 2500) {
-        await new Promise((r) => setTimeout(r, 80))
-        continue
+      if (h264Running()) {
+        if (h264AckAt && Date.now() - h264AckAt < 3000) {
+          await new Promise((r) => setTimeout(r, 50))
+          continue
+        }
+        if (!h264AckAt && Date.now() - h264StartedAt < 5000) {
+          await new Promise((r) => setTimeout(r, 50))
+          continue
+        }
+        stopH264()
+        h264AckAt = 0
       }
       if (autoQuality) {
         const buf = ws?.bufferedAmount || 0
-        if (h264Running()) quality = { ...quality, fps: 5, jpegQuality: 42 }
-        else if (buf > 800_000) quality = { ...quality, fps: 8, jpegQuality: 42 }
-        else if (buf > 250_000) quality = { ...quality, fps: 12, jpegQuality: 52 }
-        else quality = { ...quality, fps: 18, jpegQuality: 62 }
+        if (buf > 800_000) quality = { ...quality, fps: 10, jpegQuality: 45, maxWidth: 1280 }
+        else if (buf > 250_000) quality = { ...quality, fps: 15, jpegQuality: 52, maxWidth: 1280 }
+        else quality = { ...quality, fps: 20, jpegQuality: 58, maxWidth: 1280 }
       }
       if (ws && ws.bufferedAmount < 2_000_000) {
         const frame = await captureFrame(displayId, quality)
@@ -298,6 +306,8 @@ async function handle(msg: Msg) {
         notify('RemoteAI', '원격 접속이 시작되었습니다.')
         const kickH264 = () => {
           if (viewers <= 0) return
+          h264StartedAt = Date.now()
+          h264AckAt = 0
           startH264(
             (b) => sendBin(b),
             (err) => {
@@ -307,7 +317,7 @@ async function handle(msg: Msg) {
             quality.maxWidth,
           )
         }
-        if (!h264Running()) kickH264()
+        if (!h264Running()) setTimeout(kickH264, 400)
         void (async () => {
           const iceServers = await fetchIce(cfg.serverUrl)
           const sdp = await createOffer({
@@ -543,4 +553,4 @@ function connect() {
 connect()
 
 log('RemoteAI host started', silent ? 'silent' : 'interactive')
-if (!silent) setTimeout(openUi, 2500)
+if (!silent && !cfg.accountUser) setTimeout(openUi, 2500)
