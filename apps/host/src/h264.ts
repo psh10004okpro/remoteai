@@ -189,7 +189,10 @@ function takeNals(buf: Buffer) {
     }
     i++
   }
-  if (starts.length < 2) return { list, rest: buf }
+  if (starts.length < 2) {
+    if (buf.length > 2_000_000) return { list, rest: Buffer.alloc(0) }
+    return { list, rest: buf }
+  }
   for (let s = 0; s < starts.length - 1; s++) {
     const a = starts[s]
     const b = starts[s + 1]

@@ -51,6 +51,7 @@ type Client = {
   role: 'host' | 'viewer' | 'unknown'
   deviceId?: string
   viewerId?: string
+  ip?: string
 }
 
 type Room = {
@@ -604,8 +605,8 @@ setInterval(() => {
   }
 }, 20000).unref()
 
-wss.on('connection', (ws) => {
-  const client: Client = { ws, role: 'unknown' }
+wss.on('connection', (ws, req) => {
+  const client: Client = { ws, role: 'unknown', ip: req.socket.remoteAddress || '' }
   wsAlive.set(ws, true)
   ws.on('pong', () => wsAlive.set(ws, true))
 
@@ -718,6 +719,10 @@ async function handleJson(client: Client, msg: Msg) {
       return
     }
     case 'viewer.auth': {
+      if (msg.password && rateLimited(clientKey(client.ip || '', 'pin:' + msg.deviceId), 12, 15 * 60_000)) {
+        send(client.ws, { type: 'viewer.denied', message: '비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' })
+        return
+      }
       const room = rooms.get(msg.deviceId)
       if (!room?.host) {
         send(client.ws, { type: 'viewer.denied', message: '이 컴퓨터가 온라인이 아닙니다.' })
@@ -747,6 +752,10 @@ async function handleJson(client: Client, msg: Msg) {
       return
     }
     case 'viewer.authCode': {
+      if (rateLimited(clientKey(client.ip || '', 'otc'), 10, 10 * 60_000)) {
+        send(client.ws, { type: 'viewer.denied', message: '코드 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' })
+        return
+      }
       const found = [...rooms.entries()].find(([, r]) => r.oneTime && r.oneTime.code === msg.code && r.oneTime.expiresAt > Date.now())
       if (!found) {
         send(client.ws, { type: 'viewer.denied', message: '일회용 코드가 유효하지 않습니다.' })
@@ -811,6 +820,7 @@ async function handleJson(client: Client, msg: Msg) {
       try {
         const text = await runAiTurn(msg.text, room.aiHistory, bridge)
         room.aiHistory.push({ role: 'user', content: msg.text }, { role: 'assistant', content: text })
+        if (room.aiHistory.length > 24) room.aiHistory = room.aiHistory.slice(-24)
         broadcastViewers(room, { type: 'ai.assistant', text })
       } catch (err) {
         hubLog('error', 'ai.turn', { deviceId: client.deviceId, message: err instanceof Error ? err.message : String(err) })

@@ -32,6 +32,12 @@ const clipRoot = path.join(os.tmpdir(), 'RemoteAI-clip')
 
 export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
   const server = http.createServer((req, res) => {
+    const hostHead = String(req.headers.host || '').split(':')[0].replace(/^\[|\]$/g, '')
+    if (hostHead && hostHead !== '127.0.0.1' && hostHead !== 'localhost' && hostHead !== '::1') {
+      res.writeHead(403)
+      res.end('forbidden')
+      return
+    }
     const origin = req.headers.origin || ''
     const allow = originOk(origin, state.cfg().serverUrl)
     if (allow && origin) res.setHeader('Access-Control-Allow-Origin', origin)
@@ -215,7 +221,7 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
 }
 
 function originOk(origin: string, serverUrl: string) {
-  if (!origin) return true
+  if (!origin) return false
   try {
     const u = new URL(origin)
     if (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '::1') return true

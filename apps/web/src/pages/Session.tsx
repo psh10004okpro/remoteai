@@ -172,6 +172,10 @@ export default function Session() {
     } catch {
       /* ignore */
     }
+    incoming.current.clear()
+    batches.current.clear()
+    recvXfer.current.sizes.clear()
+    recvXfer.current.sent.clear()
     const ws = new WebSocket(wsUrl())
     ws.binaryType = 'arraybuffer'
     sockRef.current = ws
@@ -324,7 +328,7 @@ export default function Session() {
             recvXfer.current.sent.delete(msg.transferId)
             setTimeout(() => setProgress(null), 800)
             finishReceive([{ name: rec.name, relativePath: rec.relativePath, data: concatChunks(rec.chunks) }])
-          } else if (msg.savedPath && msg.origin !== 'host') {
+          } else if (msg.savedPath) {
             setChat((c) => [...c, { from: 'system', text: `원격 저장: ${msg.savedPath}` }])
           }
           break
@@ -699,7 +703,6 @@ export default function Session() {
       }
       await waitSend()
       sendBin(encodeFileChunk(id, seq, true, leftover))
-      if (f.size === 0 && seq === 0) sendBin(encodeFileChunk(id, 0, true, new Uint8Array()))
       send({ type: 'file.end', transferId: id, origin: 'viewer', batchId })
     }
     send({ type: 'clipboard.files.complete', origin: 'viewer', batchId })

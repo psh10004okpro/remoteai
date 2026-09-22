@@ -2,6 +2,7 @@ import os from 'node:os'
 import { exec } from 'node:child_process'
 import WebSocket from 'ws'
 import {
+  BINARY,
   DEFAULT_CAPABILITIES,
   DEFAULT_QUALITY,
   FILE_CHUNK_SIZE,
@@ -72,7 +73,8 @@ function send(msg: Msg) {
 }
 
 function sendBin(data: Uint8Array) {
-  if (sendRtc(data)) return
+  const media = data[0] === BINARY.JPEG || data[0] === BINARY.H264 || data[0] === BINARY.AUDIO
+  if (media && sendRtc(data)) return
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(data)
 }
 
@@ -365,9 +367,19 @@ async function handle(msg: Msg) {
     case 'session.viewOnly':
       viewOnly = msg.on
       break
-    case 'session.fit':
-      quality = { ...quality, maxWidth: Math.max(640, Math.min(1920, Math.round(msg.width))) }
+    case 'session.fit': {
+      const w = Math.max(640, Math.min(1920, Math.round(msg.width)))
+      const prev = quality.maxWidth
+      quality = { ...quality, maxWidth: w }
+      if (h264Running() && Math.abs(w - prev) >= 80 && viewers > 0) {
+        startH264(
+          (b) => sendBin(b),
+          (err) => send({ type: 'chat', from: 'system', text: err }),
+          quality.maxWidth,
+        )
+      }
       break
+    }
     case 'ping':
       send({ type: 'pong', t: msg.t })
       break
