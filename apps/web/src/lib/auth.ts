@@ -25,6 +25,18 @@ export function setPendingSession(deviceId: string) {
   sessionStorage.setItem('remoteai.connect', deviceId)
 }
 
+export function setPendingPin(pin: string) {
+  if (pin) sessionStorage.setItem('remoteai.pin', pin)
+}
+
+export function peekPendingPin() {
+  return sessionStorage.getItem('remoteai.pin') || ''
+}
+
+export function clearPendingPin() {
+  sessionStorage.removeItem('remoteai.pin')
+}
+
 export function takePendingSession() {
   return sessionStorage.getItem('remoteai.connect') || ''
 }

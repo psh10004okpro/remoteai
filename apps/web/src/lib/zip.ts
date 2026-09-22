@@ -40,7 +40,7 @@ export function zipStore(files: { name: string; data: Uint8Array }[]) {
     const local = [
       u32(0x04034b50),
       u16(20),
-      u16(0),
+      u16(0x800),
       u16(0),
       u16(0),
       u16(0),
@@ -58,7 +58,7 @@ export function zipStore(files: { name: string; data: Uint8Array }[]) {
       u32(0x02014b50),
       u16(20),
       u16(20),
-      u16(0),
+      u16(0x800),
       u16(0),
       u16(0),
       u16(0),

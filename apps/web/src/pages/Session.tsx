@@ -18,7 +18,15 @@ import {
 } from '@remoteai/protocol'
 import { fetchLocalHost, localHostUrl, wsUrl } from '../lib/ws'
 import { downloadBlob, zipStore } from '../lib/zip'
-import { clearPendingSession, getToken, reportClientError, takePendingSession } from '../lib/auth'
+import {
+  clearPendingPin,
+  clearPendingSession,
+  getToken,
+  peekPendingPin,
+  reportClientError,
+  setPendingPin,
+  takePendingSession,
+} from '../lib/auth'
 
 type ChatItem = { from: string; text: string }
 
@@ -91,7 +99,16 @@ export default function Session() {
   const msgHandler = useRef<(ev: MessageEvent) => void>(() => undefined)
 
   const [deviceId] = useState(() => params.get('id') || takePendingSession())
-  const password = params.get('pw') || ''
+  const [password] = useState(() => {
+    const fromUrl = params.get('pw') || ''
+    if (fromUrl) {
+      setPendingPin(fromUrl)
+      const u = new URL(window.location.href)
+      u.searchParams.delete('pw')
+      history.replaceState(null, '', u.pathname + u.search + u.hash)
+    }
+    return fromUrl || peekPendingPin()
+  })
   const accountToken = getToken()
   const code = params.get('code') || ''
 
@@ -191,6 +208,7 @@ export default function Session() {
           setDisplays(msg.displays)
           setDisplayId(msg.displays.find((d) => d.primary)?.id ?? 0)
           clearPendingSession()
+          clearPendingPin()
           break
         case 'viewer.denied':
           if (msg.message.includes('온라인이 아닙니다')) {
@@ -517,6 +535,8 @@ export default function Session() {
   useEffect(() => {
     function keys(e: KeyboardEvent, action: 'down' | 'up') {
       if (viewOnly || panel === 'ai' || panel === 'term') return
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return
       if (!canvasRef.current) return
       e.preventDefault()
       send({
@@ -535,6 +555,8 @@ export default function Session() {
     window.addEventListener('keydown', down, true)
     window.addEventListener('keyup', up, true)
     function onPaste(e: ClipboardEvent) {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return
       const dt = e.clipboardData
       if (!dt) return
       const items = dt.items

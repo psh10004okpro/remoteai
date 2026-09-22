@@ -74,12 +74,6 @@ const webDist = path.resolve(here, '../../web/dist')
 const dataRoot = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(here, '../data')
 
 async function ensureReleaseAsset(name: string) {
-  const cache = path.join(dataRoot, name)
-  try {
-    if (fs.existsSync(cache) && fs.statSync(cache).size > 1_000_000) return cache
-  } catch {
-    /* fetch */
-  }
   const token = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim()
   const repo = (process.env.GITHUB_REPO || 'psh10004okpro/remoteai').replace(/^\/+|\/+$/g, '')
   if (!token) throw new Error('no github token')
@@ -90,7 +84,14 @@ async function ensureReleaseAsset(name: string) {
   }
   const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers })
   if (!rel.ok) throw new Error('release ' + rel.status)
-  const body = (await rel.json()) as { assets?: { name: string; url: string }[] }
+  const body = (await rel.json()) as { tag_name?: string; assets?: { name: string; url: string }[] }
+  const tag = String(body.tag_name || 'latest').replace(/[^\w.-]/g, '')
+  const cache = path.join(dataRoot, `${tag}-${name}`)
+  try {
+    if (fs.existsSync(cache) && fs.statSync(cache).size > 1_000_000) return cache
+  } catch {
+    /* fetch */
+  }
   const asset = body.assets?.find((a) => a.name === name)
   if (!asset?.url) throw new Error('no asset ' + name)
   const bin = await fetch(asset.url, {

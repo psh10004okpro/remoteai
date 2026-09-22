@@ -34,10 +34,6 @@ function pipelines(width: number) {
     process.platform === 'darwin'
       ? ['-f', 'avfoundation', '-framerate', '20', '-i', '1:none']
       : ['-f', 'gdigrab', '-framerate', '20', '-draw_mouse', '1', '-i', 'desktop']
-  const dda =
-    process.platform === 'win32'
-      ? ['-f', 'lavfi', '-i', 'ddagrab=framerate=20,hwdownload,format=bgra', '-vf', vf]
-      : null
   const text = encoderList()
   const out: { name: string; args: string[] }[] = []
   const tail = (codec: string, extra: string[]) => [
@@ -57,7 +53,6 @@ function pipelines(width: number) {
   ]
   if (/\bh264_nvenc\b/.test(text)) {
     const nv = tail('h264_nvenc', ['-preset', 'p1', '-tune', 'll', '-profile:v', 'baseline', '-b:v', '5M'])
-    if (dda) out.push({ name: 'ddagrab+nvenc', args: ['-hide_banner', '-loglevel', 'error', ...dda, ...nv] })
     out.push({ name: 'gdigrab+nvenc', args: ['-hide_banner', '-loglevel', 'error', ...grab, '-vf', vf, ...nv] })
   }
   if (/\bh264_qsv\b/.test(text)) {
