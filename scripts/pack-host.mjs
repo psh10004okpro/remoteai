@@ -14,7 +14,7 @@ if (!existsSync(hostJs)) {
 rmSync(out, { recursive: true, force: true })
 mkdirSync(path.join(out, 'app'), { recursive: true })
 cpSync(hostJs, path.join(out, 'app', 'index.js'))
-writeFileSync(path.join(out, 'VERSION'), '0.1.3\n')
+writeFileSync(path.join(out, 'VERSION'), '0.1.4\n')
 cpSync(process.execPath, path.join(out, 'node.exe'))
 copyFfmpeg(out)
 copyWinsw(out)

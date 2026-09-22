@@ -219,7 +219,7 @@ app.get('/api/ice', (_req, res) => {
 
 app.get('/api/version', (_req, res) => {
   res.json({
-    version: process.env.APP_VERSION || '0.1.3',
+    version: process.env.APP_VERSION || '0.1.4',
     setupUrl: '/RemoteAI-Setup.exe',
     macUrl: '/RemoteAI-Mac.zip',
   })

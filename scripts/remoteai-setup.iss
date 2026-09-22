@@ -1,5 +1,5 @@
 #define MyAppName "RemoteAI"
-#define MyAppVersion "0.1.3"
+#define MyAppVersion "0.1.4"
 #define MyAppPublisher "RemoteAI"
 #define MyAppURL "https://remote.unwoldamstudio.com"
 #define MyAppExeName "RemoteAI.vbs"

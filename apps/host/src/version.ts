@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-export const HOST_VERSION = '0.1.3'
+export const HOST_VERSION = '0.1.4'
 
 export function versionNewer(latest: string, current: string) {
   const a = latest.split('.').map((n) => parseInt(n, 10) || 0)
