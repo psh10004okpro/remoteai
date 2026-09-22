@@ -13,6 +13,7 @@ import {
   FILE_CHUNK_SIZE,
   type DisplayInfo,
   type FileEntry,
+  type HostStats,
   type Msg,
   type SpecialKey,
 } from '@remoteai/protocol'
@@ -29,6 +30,23 @@ import {
 } from '../lib/auth'
 
 type ChatItem = { from: string; text: string }
+
+function fmtTemp(cpu?: number | null, gpu?: number | null) {
+  const bits = [
+    cpu != null ? `${cpu}°C` : '',
+    gpu != null ? `GPU ${gpu}°C` : '',
+  ].filter(Boolean)
+  return bits.length ? ` · ${bits.join(' · ')}` : ''
+}
+
+function fmtUptime(s: number) {
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d) return `${d}일 ${h}시간`
+  if (h) return `${h}시간 ${m}분`
+  return `${m}분`
+}
 
 function fmtBytes(n: number) {
   if (n < 1024) return `${n} B`
@@ -47,7 +65,8 @@ export default function Session() {
   const [name, setName] = useState('')
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [displayId, setDisplayId] = useState(0)
-  const [panel, setPanel] = useState<'none' | 'files' | 'ai' | 'term'>('none')
+  const [panel, setPanel] = useState<'none' | 'files' | 'ai' | 'term' | 'info'>('none')
+  const [stats, setStats] = useState<HostStats | null>(null)
   const [chat, setChat] = useState<ChatItem[]>([])
   const [aiInput, setAiInput] = useState('')
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -198,6 +217,9 @@ export default function Session() {
             sdpMid: msg.sdpMid ?? undefined,
             sdpMLineIndex: msg.sdpMLineIndex ?? undefined,
           }).catch(() => undefined)
+          break
+        case 'host.stats':
+          setStats(msg.stats)
           break
         case 'viewer.welcome':
           reconnecting.current = false
@@ -804,7 +826,7 @@ export default function Session() {
         <Link to="/" style={{ color: '#ccc', fontSize: 13 }}>
           나가기
         </Link>
-        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}{rtcOn ? ' · P2P' : ''}{recording ? ' · 녹화' : ''}</span>
+        <span style={{ fontSize: 13 }}>{status}{name ? ` · ${name}` : ''}{rtcOn ? ' · P2P' : ''}{recording ? ' · 녹화' : ''}{stats ? ` · CPU ${stats.cpuPct}%${fmtTemp(stats.cpuTempC, stats.gpuTempC)} · RAM ${fmtBytes(stats.memUsed)}/${fmtBytes(stats.memTotal)}` : ''}</span>
         {displays.length > 1 && (
           <select
             value={displayId}
@@ -824,6 +846,7 @@ export default function Session() {
         <button type="button" onClick={() => setPanel(panel === 'files' ? 'none' : 'files')}>파일</button>
         <button type="button" onClick={() => setPanel(panel === 'ai' ? 'none' : 'ai')}>AI</button>
         <button type="button" onClick={() => setPanel(panel === 'term' ? 'none' : 'term')}>터미널</button>
+        <button type="button" onClick={() => setPanel(panel === 'info' ? 'none' : 'info')}>정보</button>
         <span className="spacer" />
         <div className="more">
           <button type="button" onClick={(e) => { e.stopPropagation(); setMore((m) => !m) }}>더보기</button>
@@ -1062,6 +1085,39 @@ export default function Session() {
               <>
                 <header>PowerShell / SSH 스타일 터미널</header>
                 <div ref={termRef} style={{ flex: 1, minHeight: 0 }} />
+              </>
+            )}
+            {panel === 'info' && (
+              <>
+                <header>컴퓨터 정보</header>
+                {stats ? (
+                  <div className="hint" style={{ padding: 12, lineHeight: 1.7 }}>
+                    <div>이름 {stats.hostname}</div>
+                    <div>OS {stats.os} · {stats.arch}</div>
+                    {stats.ips?.length ? <div>IP {stats.ips.join(', ')}</div> : null}
+                    <div>켜진 지 {fmtUptime(stats.uptimeSec)}</div>
+                    <div>
+                      CPU {stats.cpuPct}%{stats.cpuCores ? ` · ${stats.cpuCores}스레드` : ''}
+                      {fmtTemp(stats.cpuTempC, stats.gpuTempC)}
+                    </div>
+                    {stats.cpuModel ? <div>{stats.cpuModel}</div> : null}
+                    <div>메모리 {fmtBytes(stats.memUsed)} / {fmtBytes(stats.memTotal)}</div>
+                    {stats.gpuName ? (
+                      <div>
+                        GPU {stats.gpuName}
+                        {stats.gpuUtilPct != null ? ` · ${stats.gpuUtilPct}%` : ''}
+                        {stats.gpuTempC != null ? ` · ${stats.gpuTempC}°C` : ''}
+                      </div>
+                    ) : null}
+                    {stats.disks.map((d) => (
+                      <div key={d.mount}>
+                        디스크 {d.mount} {fmtBytes(d.used)} / {fmtBytes(d.total)} ({Math.round((d.used / d.total) * 100)}%)
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">호스트가 정보를 보내는 중입니다.</p>
+                )}
               </>
             )}
           </aside>

@@ -78,6 +78,26 @@ export const DEFAULT_QUALITY: QualitySettings = {
   maxWidth: 1600,
 }
 
+export type DiskStat = { mount: string; used: number; total: number }
+
+export type HostStats = {
+  hostname: string
+  os: string
+  arch: string
+  uptimeSec: number
+  cpuPct: number
+  cpuModel?: string
+  cpuCores?: number
+  memUsed: number
+  memTotal: number
+  disks: DiskStat[]
+  ips?: string[]
+  cpuTempC?: number | null
+  gpuTempC?: number | null
+  gpuName?: string | null
+  gpuUtilPct?: number | null
+}
+
 export type SpecialKey =
   | 'cad'
   | 'taskmgr'
@@ -145,6 +165,7 @@ export type Msg =
   | { type: 'oneTime.code'; code: string; expiresAt: number }
   | { type: 'viewer.authCode'; code: string }
   | { type: 'viewer.count'; n: number }
+  | { type: 'host.stats'; stats: HostStats }
 
 export function encodeJpegFrame(
   displayId: number,

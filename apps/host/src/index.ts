@@ -39,6 +39,7 @@ import { startAudio, stopAudio } from './audio.js'
 import { sendMagic } from './wol.js'
 import { addIce, closeRtc, createOffer, fetchIce, sendRtc, setAnswer } from './webrtc.js'
 import { h264Running, startH264, stopH264 } from './h264.js'
+import { collectStats } from './stats.js'
 import { createReadStream } from 'node:fs'
 
 let cfg = loadConfig()
@@ -57,6 +58,9 @@ let h264AckAt = 0
 let ws: WebSocket | null = null
 let nextTransfer = 1
 let lastOneTime: { code: string; expiresAt: number } | null = null
+setInterval(() => {
+  if (viewers > 0) send({ type: 'host.stats', stats: collectStats() })
+}, 2000)
 const silent = process.argv.includes('--silent') || process.argv.includes('--session')
 if (process.argv.includes('--service') && process.platform === 'win32') {
   const { watchInteractiveSession } = await import('./session-launch.js')
@@ -287,6 +291,7 @@ async function handle(msg: Msg) {
     case 'viewer.count':
       viewers = msg.n
       if (viewers > 0) {
+        send({ type: 'host.stats', stats: collectStats() })
         void captureLoop()
         notify('RemoteAI', '원격 접속이 시작되었습니다.')
         const kickH264 = () => {

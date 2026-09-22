@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchLocalHost, HOST_SETUP_MAC_URL, HOST_SETUP_URL, localHostUrl, postLocal, type LocalHostInfo } from '../lib/ws'
+import type { HostStats } from '@remoteai/protocol'
 import {
   api,
   clearSession,
@@ -38,6 +39,7 @@ export default function Home() {
   const [err, setErr] = useState('')
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [local, setLocal] = useState<LocalHostInfo | null>(null)
+  const [localStats, setLocalStats] = useState<HostStats | null>(null)
   const [code, setCode] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -76,6 +78,29 @@ export default function Home() {
     const t = setInterval(() => void refresh(), 8000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    if (!local) {
+      setLocalStats(null)
+      return
+    }
+    let stop = false
+    async function tick() {
+      try {
+        const r = await fetch(localHostUrl() + '/stats')
+        if (!r.ok || stop) return
+        setLocalStats((await r.json()) as HostStats)
+      } catch {
+        /* host down */
+      }
+    }
+    void tick()
+    const t = setInterval(() => void tick(), 4000)
+    return () => {
+      stop = true
+      clearInterval(t)
+    }
+  }, [local?.deviceId])
 
   async function onAuth(e: FormEvent) {
     e.preventDefault()
@@ -316,6 +341,19 @@ export default function Home() {
                       {local.accountUser ? '공유 중' : local.online ? '호스트 실행 중' : '오프라인'}
                     </span>
                     <p className="hint" style={{ marginTop: 10 }}>{local.hostname}</p>
+                    {localStats && (
+                      <p className="hint">
+                        CPU {localStats.cpuPct}%
+                        {localStats.cpuTempC != null ? ` ${localStats.cpuTempC}°C` : ''}
+                        {localStats.gpuUtilPct != null ? ` · GPU ${localStats.gpuUtilPct}%` : ''}
+                        {localStats.gpuTempC != null ? ` ${localStats.gpuTempC}°C` : ''}
+                        {' · '}RAM {Math.round(localStats.memUsed / 1e9 * 10) / 10}/
+                        {Math.round(localStats.memTotal / 1e9 * 10) / 10} GB
+                        {localStats.disks[0]
+                          ? ` · ${localStats.disks[0].mount} ${Math.round(localStats.disks[0].used / 1e9)}/${Math.round(localStats.disks[0].total / 1e9)} GB`
+                          : ''}
+                      </p>
+                    )}
                     {!local.accountUser && (
                       <p className="hint">아직 계정에 안 묶여 「내 컴퓨터」에 안 보입니다. 설정에서 같은 아이디로 연결하세요.</p>
                     )}

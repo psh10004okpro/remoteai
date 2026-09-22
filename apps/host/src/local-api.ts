@@ -10,6 +10,7 @@ import { sendMagic } from './wol.js'
 import { log, recentHostLogs } from './log.js'
 import { canSelfUpdate, checkForUpdate, downloadAndUpdate, lastUpdateInfo, uninstallHost } from './update.js'
 import { installedVersion } from './version.js'
+import { collectStats } from './stats.js'
 
 export type LocalState = {
   cfg: () => HostConfig
@@ -65,6 +66,10 @@ export function startLocalApi(state: LocalState, port = HOST_LOCAL_PORT) {
         packaged: isPackaged() || canSelfUpdate(),
         update: lastUpdateInfo(),
       })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/local/stats') {
+      json(res, collectStats())
       return
     }
     if (req.method === 'GET' && url.pathname === '/local/logs') {
